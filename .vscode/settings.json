@@ -1,0 +1,8 @@
+{
+  "cSpell.words": [
+    "antfu",
+    "esbuild",
+    "stata"
+  ],
+  "js/ts.tsdk.path": "node_modules/typescript/lib"
+}

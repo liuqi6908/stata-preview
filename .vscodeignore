@@ -1,0 +1,21 @@
+# 依赖与源码
+node_modules/
+src/
+**/*.ts
+esbuild.js
+tsconfig.json
+eslint.config.mjs
+
+# 构建文件
+**/*.map
+out/
+
+# 配置与日志
+.vscode/
+**/*.log
+.gitignore
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# 系统文件
+.DS_Store

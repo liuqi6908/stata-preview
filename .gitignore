@@ -1,0 +1,12 @@
+# 日志
+logs
+*.log
+
+# 构建
+out
+dist
+*.vsix
+node_modules
+
+# 系统
+.DS_Store

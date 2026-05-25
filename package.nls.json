@@ -1,0 +1,5 @@
+{
+  "displayName": "Stata Preview",
+  "description": "VSCode extension for previewing Stata .dta file content in table form within the editor",
+  "editorContributeName": "Stata Data Preview"
+}

@@ -1,0 +1,5 @@
+{
+  "displayName": "Stata 预览",
+  "description": "在编辑器中以表格形式预览 Stata 的 .dta 文件内容的 VSCode 扩展",
+  "editorContributeName": "Stata 数据预览"
+}

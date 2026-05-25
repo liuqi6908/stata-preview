@@ -1,0 +1,60 @@
+{
+  "publisher": "LiuQi",
+  "name": "stata-preview",
+  "displayName": "%displayName%",
+  "version": "0.0.1",
+  "description": "%description%",
+  "homepage": "https://github.com/liuqi6908/stata-preview",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liuqi6908/stata-preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liuqi6908/stata-preview/issues"
+  },
+  "keywords": [
+    "stata",
+    "dta",
+    "data-preview",
+    "statistics"
+  ],
+  "categories": [
+    "Visualization",
+    "Data Science"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "media/logo.png",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "stataPreview.dta",
+        "displayName": "%editorContributeName%",
+        "selector": [
+          {
+            "filenamePattern": "*.dta"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc --noEmit && node esbuild.js --production",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint . --fix",
+    "build": "vsce package"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.0.0",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.120.0",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.4.0",
+    "typescript": "^5.9.3"
+  }
+}
