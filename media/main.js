@@ -1,43 +1,75 @@
 /**
- * Webview controller. Holds NO bulk data — only metadata and the current page.
- * All sort/filter/pagination operations round-trip to the extension host.
+ * Webview 控制器。
+ *
+ * 只保存元数据与当前页数据，不持有完整数据集。
+ * 筛选、排序、分页和变量汇总均通过消息发送给扩展宿主处理。
  */
 
 /* global bootstrap, vscode */
 
 (function () {
-  // --- State (filled in once `initData` arrives from the host) ---
-  let meta = null // { headers, labels, types, valueLabels, nobs, release }
-  let pageSize = bootstrap.pageSize || 5000
+  // ---------- 状态 ----------
+
+  /** 数据集元信息，由宿主发送 initData 后填充 */
+  let meta = null
+  /** 当前分页大小 */
+  let pageSize = bootstrap.pageSize || 1000
+  /** 当前页行数据 */
   let currentPageRows = []
+  /** 当前过滤后的总行数 */
   let totalFiltered = 0
+  /** 原始总行数 */
   let totalAll = 0
+  /** 当前页在过滤后视图中的起始偏移 */
   let pageOffset = 0
 
+  /** 当前可见列下标集合 */
   let visibleColumns = new Set()
-  let colWidths = {} // header name -> px width (persists across re-renders)
-  const DEFAULT_COL_WIDTH = 140 // numeric/default
-  const DEFAULT_STR_COL_WIDTH = 240 // string columns start wider
-  let sortSpec = [] // [{ col: 'edad', dir: 'asc' }, ...]
+  /** 列宽缓存：变量名 -> 像素宽度 */
+  let colWidths = {}
+  /** 默认列宽 */
+  const DEFAULT_COL_WIDTH = 140
+  /** 字符串列默认更宽 */
+  const DEFAULT_STR_COL_WIDTH = 240
+  /** 多列排序配置 */
+  let sortSpec = []
+  /** 是否显示值标签 */
   let showLabels = false
+  /** 当前通用过滤表达式 */
   let filterQuery = ''
+  /** 侧边栏是否显示 */
   let sidebarVisible = true
+  /** 侧边栏位置 */
   let sidebarPosition = 'right'
 
-  // --- Body virtualization ---
-  // Rendering an entire page as DOM (e.g. 5000 rows x 877 cols = 4.4M <td>)
-  // freezes the webview. We instead render only the rows in (or near) the
-  // scroll viewport, with spacer rows preserving the real scroll height.
-  let estRowHeight = 31 // refined after first paint from a real row
-  const ROW_OVERSCAN = 12 // extra rows above/below the viewport
+  // ---------- 表格虚拟滚动 ----------
+
+  // 完整渲染大页会产生大量 DOM 节点，因此只渲染视口附近的行，
+  // 并通过占位行保持真实滚动高度。
+  /** 行高估计值，首次渲染后会用真实行高修正 */
+  let estRowHeight = 31
+  /** 视口上下额外渲染的行数 */
+  const ROW_OVERSCAN = 12
+  /** 是否已有一次滚动重绘排队 */
   let virtScrollScheduled = false
 
-  // Pending host requests (for cancellation by id).
+  // ---------- 宿主请求 ----------
+
+  /** 最新请求 id */
   let lastRequestId = 0
+  /** 等待宿主响应的请求 */
   const pending = new Map()
+
+  /**
+   * 生成新的请求 id
+   */
   function nextRequestId() {
     return ++lastRequestId
   }
+
+  /**
+   * 发送普通宿主请求
+   */
   function postRequest(command, payload) {
     const requestId = nextRequestId()
     return new Promise((resolve, reject) => {
@@ -46,9 +78,12 @@
     })
   }
 
-  // Per-channel "latest request wins": ignores responses that have been superseded
-  // by a newer request on the same logical channel (e.g. user types fast in filter box).
+  /** 各通道最近一次请求，用于实现“最新请求优先” */
   const latestByChannel = new Map()
+
+  /**
+   * 发送同通道仅保留最新结果的宿主请求
+   */
   async function postLatest(channel, command, payload) {
     const myId = nextRequestId()
     latestByChannel.set(channel, myId)
@@ -57,11 +92,15 @@
       vscode.postMessage({ command, requestId: myId, ...payload })
     })
     if (latestByChannel.get(channel) !== myId) {
-      // A newer request superseded us; throw a sentinel that callers ignore.
+      // 同通道已有更新请求，调用方会忽略该哨兵错误。
       throw new StaleRequestError(channel)
     }
     return result
   }
+
+  /**
+   * 过期请求错误
+   */
   class StaleRequestError extends Error {
     constructor(channel) {
       super(`stale request on ${channel}`)
@@ -69,7 +108,8 @@
     }
   }
 
-  // --- Elements ---
+  // ---------- DOM 元素 ----------
+
   const layoutContainer = document.getElementById('layout-container')
   const tableHead = document.getElementById('table-head')
   const tableBody = document.getElementById('table-body')
@@ -95,7 +135,7 @@
   const explorerVarName = document.getElementById('explorer-var-name')
   const explorerBody = document.getElementById('explorer-body')
 
-  // Pagination
+  // 分页控件
   const pageFirst = document.getElementById('page-first')
   const pagePrev = document.getElementById('page-prev')
   const pageNext = document.getElementById('page-next')
@@ -104,7 +144,7 @@
   const pageSizeSelect = document.getElementById('page-size')
   const pageSummary = document.getElementById('page-summary')
 
-  // --- Loading screen elements ---
+  // 初始加载界面
   const loadingEl = document.getElementById('initial-loading')
   const progressFill = document.getElementById('progress-fill')
   const progressText = document.getElementById('progress-text')
@@ -112,25 +152,44 @@
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
 
+  /**
+   * 隐藏初始加载界面
+   */
   function hideLoading() {
     if (loadingEl)
       loadingEl.style.display = 'none'
   }
+
+  /**
+   * 显示初始加载界面
+   */
   function showLoading() {
     if (loadingEl) {
       loadingEl.style.display = 'flex'
       progressFill.style.width = '0%'
-      progressText.textContent = 'Reading file…'
+      progressText.textContent = bootstrap.l10n.readingFile
     }
   }
+
+  /**
+   * 更新加载进度
+   */
   function setProgress(rowsRead, totalRows) {
     if (!loadingEl)
       return
     const pct = totalRows > 0 ? (rowsRead / totalRows) * 100 : 0
     progressFill.style.width = `${pct.toFixed(1)}%`
-    progressText.textContent = `Loading rows: ${rowsRead.toLocaleString()} / ${totalRows.toLocaleString()} (${pct.toFixed(0)}%)`
+    progressText.textContent = formatL10n(
+      bootstrap.l10n.LoadingRowsProgress,
+      fmtInt(rowsRead),
+      fmtInt(totalRows),
+      pct.toFixed(0),
+    )
   }
 
+  /**
+   * 应用宿主发送的初始数据
+   */
   function applyInitData(payload) {
     meta = payload.meta
     currentPageRows = payload.page.rows
@@ -148,14 +207,15 @@
     hideLoading()
   }
 
-  // --- Host messages ---
+  // ---------- 宿主消息 ----------
+
   window.addEventListener('message', (event) => {
     const msg = event.data
     if (msg.requestId && pending.has(msg.requestId)) {
       const p = pending.get(msg.requestId)
       pending.delete(msg.requestId)
       if (msg.error || msg.command === 'filterError') {
-        p.reject(new Error(msg.error || 'Filter error'))
+        p.reject(new Error(msg.error || bootstrap.l10n.FilterError))
       }
       else {
         p.resolve(msg)
@@ -177,17 +237,21 @@
         if (card) {
           card.classList.add('error')
           card.innerHTML = `
-                        <h2>Could not open file</h2>
-                        <div class="load-error-msg">${escapeHtml(msg.error)}</div>
-                    `
+            <h2>${bootstrap.l10n.couldNotOpenFile}</h2>
+            <div class="load-error-msg">${escapeHtml(msg.error)}</div>
+          `
         }
       }
     }
   })
 
-  // --- Page navigation ---
+  // ---------- 分页 ----------
+
+  /**
+   * 请求并渲染指定偏移处的页面
+   */
   async function loadPage(offset) {
-    showOverlay(true, 'Loading page…')
+    showOverlay(true, bootstrap.l10n.loadingPage)
     let succeeded = false
     try {
       const res = await postLatest('page', 'getPage', { offset, limit: pageSize })
@@ -203,14 +267,18 @@
     catch (e) {
       if (!e.stale) {
         console.error('getPage failed', e)
-        succeeded = true // hide overlay on real errors too
+        // 真实错误也需要隐藏遮罩。
+        succeeded = true
       }
     }
-    // Only hide if no newer request is still pending on the same channel.
+    // 只有当前请求没有被更新请求取代时，才隐藏遮罩。
     if (succeeded)
       showOverlay(false)
   }
 
+  /**
+   * 显示或隐藏表格计算遮罩
+   */
   function showOverlay(show, message) {
     gridOverlay.style.display = show ? 'flex' : 'none'
     if (show && message) {
@@ -220,23 +288,35 @@
     }
   }
 
+  /**
+   * 渲染分页栏状态
+   */
   function renderPaginationBar() {
     const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
     const currentPage = Math.floor(pageOffset / pageSize) + 1
-    pageInfo.textContent = `Page ${currentPage} / ${totalPages}`
+    pageInfo.textContent = formatL10n(bootstrap.l10n.PageInfo, fmtInt(currentPage), fmtInt(totalPages))
     const start = totalFiltered === 0 ? 0 : pageOffset + 1
     const end = Math.min(pageOffset + currentPageRows.length, totalFiltered)
-    const filteredNote = totalFiltered === totalAll
-      ? ` of ${fmtInt(totalAll)}`
-      : ` of ${fmtInt(totalFiltered)} filtered (of ${fmtInt(totalAll)} total)`
-    pageSummary.textContent = `Showing ${fmtInt(start)}–${fmtInt(end)}${filteredNote}`
+    pageSummary.textContent = totalFiltered === totalAll
+      ? formatL10n(bootstrap.l10n.PageSummaryAll, fmtInt(start), fmtInt(end), fmtInt(totalAll))
+      : formatL10n(bootstrap.l10n.PageSummaryFiltered, fmtInt(start), fmtInt(end), fmtInt(totalFiltered), fmtInt(totalAll))
     pageFirst.disabled = pagePrev.disabled = currentPage <= 1
     pageLast.disabled = pageNext.disabled = currentPage >= totalPages
-    stats.textContent = `Rows: ${fmtInt(totalFiltered)}`
+    stats.textContent = formatL10n(bootstrap.l10n.RowsSummary, fmtInt(totalFiltered))
   }
 
+  /**
+   * 格式化整数
+   */
   function fmtInt(n) {
     return n.toLocaleString()
+  }
+
+  /**
+   * 格式化 l10n 模板
+   */
+  function formatL10n(template, ...args) {
+    return String(template).replace(/\{(\d+)\}/g, (_, i) => args[Number(i)] ?? '')
   }
 
   pageFirst.addEventListener('click', () => loadPage(0))
@@ -247,11 +327,12 @@
     loadPage(lastOffset)
   })
   pageSizeSelect.addEventListener('change', () => {
-    pageSize = Number.parseInt(pageSizeSelect.value, 10) || 5000
+    pageSize = Number.parseInt(pageSizeSelect.value, 10) || 1000
     loadPage(0)
   })
 
-  // --- Filter ---
+  // ---------- 筛选 ----------
+
   searchBtn.addEventListener('click', applyFilterAndReload)
   searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter')
@@ -264,10 +345,13 @@
     applyFilterAndReload()
   })
 
+  /**
+   * 应用通用过滤表达式并回到第一页
+   */
   async function applyFilterAndReload() {
     filterQuery = searchInput.value
     clearFilterError()
-    showOverlay(true, 'Applying filter…')
+    showOverlay(true, bootstrap.l10n.applyingFilter)
     try {
       const spec = filterQuery.trim() ? { query: filterQuery } : null
       await postLatest('filter', 'setFilter', { spec })
@@ -281,19 +365,30 @@
     }
   }
 
+  /**
+   * 清除通用过滤错误提示
+   */
   function clearFilterError() {
     searchInput.classList.remove('error')
     filterError.textContent = ''
   }
+
+  /**
+   * 显示通用过滤错误提示
+   */
   function showFilterError(msg) {
     searchInput.classList.add('error')
     filterError.textContent = msg
   }
 
-  // --- Sort ---
+  // ---------- 排序 ----------
+
+  /**
+   * 应用排序配置并回到第一页
+   */
   async function applySort(spec) {
     sortSpec = spec
-    showOverlay(true, 'Sorting…')
+    showOverlay(true, bootstrap.l10n.sorting)
     try {
       await postLatest('sort', 'setSort', { spec })
       await loadPage(0)
@@ -306,11 +401,14 @@
     }
   }
 
+  /**
+   * 处理表头点击排序
+   */
   function handleHeaderClick(colIndex, shiftKey) {
     const col = meta.headers[colIndex]
     const existing = sortSpec.findIndex(s => s.col === col)
     if (shiftKey) {
-      // Multi-sort: toggle this column inside spec
+      // Shift 点击：在多列排序中切换当前列。
       if (existing === -1) {
         sortSpec.push({ col, dir: 'asc' })
       }
@@ -322,7 +420,7 @@
       }
     }
     else {
-      // Single-column: replace spec, cycle asc → desc → none
+      // 普通点击：单列排序，按 asc -> desc -> none 循环。
       if (existing === -1) {
         sortSpec = [{ col, dir: 'asc' }]
       }
@@ -338,7 +436,11 @@
     applySort([...sortSpec])
   }
 
-  // --- Header / body rendering ---
+  // ---------- 表格渲染 ----------
+
+  /**
+   * 重新渲染完整表格
+   */
   function renderTable() {
     gridWrapper.scrollTop = 0
     renderHeader()
@@ -346,12 +448,18 @@
     initColumnResize()
   }
 
+  /**
+   * 获取默认列宽
+   */
   function defaultColWidth(i) {
     const t = meta.types && meta.types[i]
     const isStr = typeof t === 'string' && t.startsWith('str')
     return isStr ? DEFAULT_STR_COL_WIDTH : DEFAULT_COL_WIDTH
   }
 
+  /**
+   * 渲染表头
+   */
   function renderHeader() {
     tableHead.innerHTML = ''
     const tr = document.createElement('tr')
@@ -365,8 +473,7 @@
       const sortInfo = sortSpec.findIndex(s => s.col === header)
       const sortDir = sortInfo >= 0 ? sortSpec[sortInfo].dir : null
       const sortIdx = sortInfo >= 0 && sortSpec.length > 1 ? sortInfo + 1 : null
-      th.innerHTML = `<span>${escapeHtml(header)}</span>${
-        sortDir ? `<span class="sort-indicator">${sortDir === 'asc' ? ' ▲' : ' ▼'}${sortIdx ? ` ${sortIdx}` : ''}</span>` : ''}`
+      th.innerHTML = `<span>${escapeHtml(header)}</span>${sortDir ? `<span class="sort-indicator">${sortDir === 'asc' ? ' ▲' : ' ▼'}${sortIdx ? ` ${sortIdx}` : ''}</span>` : ''}`
       th.title = meta.labels[i] || header
       if (sortDir)
         th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc')
@@ -380,6 +487,9 @@
     tableHead.appendChild(tr)
   }
 
+  /**
+   * 计算当前可见列数
+   */
   function visibleColCount() {
     let n = 0
     for (let c = 0; c < meta.headers.length; c++) {
@@ -389,6 +499,9 @@
     return n
   }
 
+  /**
+   * 构建单行 DOM
+   */
   function buildRow(rowData) {
     const tr = document.createElement('tr')
     for (let c = 0; c < meta.headers.length; c++) {
@@ -404,7 +517,7 @@
         const map = meta.valueLabels[meta.headers[c]]
         if (map[rawVal] !== undefined) {
           td.textContent = map[rawVal]
-          td.title = `Value: ${rawVal}`
+          td.title = formatL10n(bootstrap.l10n.ValueTitle, rawVal)
         }
         else {
           td.textContent = String(rawVal)
@@ -418,6 +531,9 @@
     return tr
   }
 
+  /**
+   * 构建虚拟滚动占位行
+   */
   function spacerRow(height, colspan) {
     const tr = document.createElement('tr')
     tr.className = 'v-spacer'
@@ -430,8 +546,9 @@
     return tr
   }
 
-  // Render only the rows in/near the scroll viewport. Spacer <tr>s above and
-  // below reserve the full scroll height so the scrollbar stays accurate.
+  /**
+   * 渲染视口附近的表格行
+   */
   function renderBody() {
     const total = currentPageRows.length
     if (total === 0) {
@@ -466,8 +583,7 @@
     tableBody.innerHTML = ''
     tableBody.appendChild(fragment)
 
-    // Refine the row-height estimate from a real rendered row, then
-    // re-render once if it was off enough to misplace the window.
+    // 使用真实渲染行修正行高估计，必要时重绘一次可见窗口。
     const sampleRow = tableBody.querySelector('tr:not(.v-spacer)')
     if (sampleRow) {
       const h = sampleRow.getBoundingClientRect().height
@@ -478,7 +594,9 @@
     }
   }
 
-  // Re-render just the visible window (used on scroll; never rebuilds header).
+  /**
+   * 重绘可见行窗口
+   */
   function renderBodyWindow() {
     if (!meta || currentPageRows.length === 0)
       return
@@ -495,6 +613,9 @@
     })
   })
 
+  /**
+   * 转义 HTML 文本
+   */
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({
       '&': '&amp;',
@@ -505,7 +626,11 @@
     })[c])
   }
 
-  // --- Sidebar ---
+  // ---------- 侧边栏 ----------
+
+  /**
+   * 渲染变量列表
+   */
   function renderSidebar() {
     varList.innerHTML = ''
     meta.headers.forEach((header, i) => {
@@ -538,7 +663,7 @@
 
       const exploreBtn = document.createElement('button')
       exploreBtn.className = 'btn-explore'
-      exploreBtn.textContent = 'Explore'
+      exploreBtn.textContent = bootstrap.l10n.Explore
       exploreBtn.onclick = () => openExplorer(i)
 
       div.appendChild(varInfo)
@@ -548,8 +673,9 @@
     updateBulkActions()
   }
 
-  // "Select all" only shows when not every variable is selected.
-  // "Deselect all" only shows when at least one variable is selected.
+  /**
+   * 更新批量选择按钮可见性
+   */
   function updateBulkActions() {
     if (!meta)
       return
@@ -579,13 +705,17 @@
     })
   })
 
-  // --- Top toolbar buttons ---
+  // ---------- 顶部工具栏 ----------
+
   refreshBtn.addEventListener('click', () => {
     vscode.postMessage({ command: 'refresh' })
   })
   toggleLabelsBtn.addEventListener('click', () => {
     showLabels = !showLabels
-    toggleLabelsBtn.textContent = `Labels: ${showLabels ? 'ON' : 'OFF'}`
+    toggleLabelsBtn.textContent = formatL10n(
+      bootstrap.l10n.LabelsToggle,
+      showLabels ? bootstrap.l10n.ON : bootstrap.l10n.OFF,
+    )
     renderBody()
   })
   toggleSidebarBtn.addEventListener('click', () => {
@@ -597,18 +727,24 @@
     layoutContainer.classList.toggle('sidebar-bottom', sidebarPosition === 'bottom')
   })
 
-  // --- Variable Explorer ---
+  // ---------- 变量汇总弹窗 ----------
+
   closeExplorerBtn.addEventListener('click', () => explorerModal.classList.remove('show'))
   explorerModal.addEventListener('click', (e) => {
     if (e.target === explorerModal)
       explorerModal.classList.remove('show')
   })
 
-  // Explorer-local state, reset every time the modal opens.
+  /** 当前汇总变量名 */
   let explorerVar = null
+  /** 变量汇总局部过滤表达式 */
   let explorerExpr = ''
+  /** 是否继承表格通用过滤 */
   let explorerInheritGeneral = false
 
+  /**
+   * 打开变量汇总弹窗
+   */
   async function openExplorer(varIndex) {
     explorerVar = meta.headers[varIndex]
     const varLabel = meta.labels[varIndex]
@@ -619,11 +755,12 @@
     await runTabulate()
   }
 
+  /**
+   * 请求并渲染变量汇总结果
+   */
   async function runTabulate() {
-    // Render the filter panel + a placeholder for the result so the user can
-    // tweak the expression while the previous result is still on screen.
-    explorerBody.innerHTML = `${renderExplorerFilterPanel()
-    }<div id="explorer-result"><div class="explorer-loading">Computing...</div></div>`
+    // 先渲染过滤面板和结果占位，让用户能继续编辑过滤表达式。
+    explorerBody.innerHTML = `${renderExplorerFilterPanel()}<div id="explorer-result"><div class="explorer-loading">${bootstrap.l10n.Computing}</div></div>`
     wireExplorerFilterPanel()
 
     const resultEl = document.getElementById('explorer-result')
@@ -635,46 +772,49 @@
       })
       if (res.kind === 'filterError') {
         showExplorerFilterError(res.error)
-        resultEl.innerHTML = '<div class="explorer-error">Fix the filter to compute results.</div>'
+        resultEl.innerHTML = `<div class="explorer-error">${bootstrap.l10n.FixFilterToComputeResults}</div>`
         return
       }
       clearExplorerFilterError()
       resultEl.innerHTML = renderTabulateResult(res.result, explorerVar, res.scopeN)
     }
     catch (e) {
-      resultEl.innerHTML = `<div class="explorer-error">Error: ${escapeHtml(String(e.message || e))}</div>`
+      resultEl.innerHTML = `<div class="explorer-error">${bootstrap.l10n.ErrorPrefix} ${escapeHtml(String(e.message || e))}</div>`
     }
   }
 
+  /**
+   * 渲染变量汇总过滤面板
+   */
   function renderExplorerFilterPanel() {
     const generalActive = totalFiltered !== totalAll
     const inheritDisabled = !generalActive
     const inheritChecked = explorerInheritGeneral && generalActive
     const generalNote = generalActive
-      ? `(general filter: ${fmtInt(totalFiltered)} / ${fmtInt(totalAll)} rows)`
-      : `(no general filter active)`
+      ? formatL10n(bootstrap.l10n.GeneralFilterNote, fmtInt(totalFiltered), fmtInt(totalAll))
+      : bootstrap.l10n.NoGeneralFilterActive
     return `
-            <div class="explorer-filter-panel">
-                <div class="explorer-filter-row">
-                    <input type="text" id="explorer-filter-input" placeholder="Filter for this tabulation, e.g. edad == 30 & treatment == 1"
-                           value="${escapeHtml(explorerExpr)}">
-                    <button id="explorer-filter-apply" class="btn-search">Apply</button>
-                    <button id="explorer-filter-clear" class="btn-toggle">Clear</button>
-                </div>
-                <div class="explorer-filter-row explorer-filter-options">
-                    <label class="explorer-inherit">
-                        <input type="checkbox" id="explorer-inherit"
-                               ${inheritChecked ? 'checked' : ''}
-                               ${inheritDisabled ? 'disabled' : ''}>
-                        <span>Combine with general filter</span>
-                        <span class="explorer-inherit-note">${generalNote}</span>
-                    </label>
-                    <span id="explorer-filter-error" class="filter-error"></span>
-                </div>
-            </div>
-        `
+      <div class="explorer-filter-panel">
+        <div class="explorer-filter-row">
+          <input type="text" id="explorer-filter-input" placeholder="${bootstrap.l10n.filterForTabulationPlaceholder}" value="${escapeHtml(explorerExpr)}">
+          <button id="explorer-filter-apply" class="btn-search">${bootstrap.l10n.Apply}</button>
+          <button id="explorer-filter-clear" class="btn-toggle">${bootstrap.l10n.Clear}</button>
+        </div>
+        <div class="explorer-filter-row explorer-filter-options">
+          <label class="explorer-inherit">
+            <input type="checkbox" id="explorer-inherit" ${inheritChecked ? 'checked' : ''} ${inheritDisabled ? 'disabled' : ''}>
+            <span>${bootstrap.l10n.combineWithGeneralFilter}</span>
+            <span class="explorer-inherit-note">${generalNote}</span>
+          </label>
+          <span id="explorer-filter-error" class="filter-error"></span>
+        </div>
+      </div>
+    `
   }
 
+  /**
+   * 绑定变量汇总过滤面板事件
+   */
   function wireExplorerFilterPanel() {
     const input = document.getElementById('explorer-filter-input')
     const apply = document.getElementById('explorer-filter-apply')
@@ -702,6 +842,9 @@
     }
   }
 
+  /**
+   * 显示变量汇总局部过滤错误
+   */
   function showExplorerFilterError(msg) {
     const input = document.getElementById('explorer-filter-input')
     const err = document.getElementById('explorer-filter-error')
@@ -710,6 +853,10 @@
     if (err)
       err.textContent = msg
   }
+
+  /**
+   * 清除变量汇总局部过滤错误
+   */
   function clearExplorerFilterError() {
     const input = document.getElementById('explorer-filter-input')
     const err = document.getElementById('explorer-filter-error')
@@ -719,6 +866,9 @@
       err.textContent = ''
   }
 
+  /**
+   * 格式化数值
+   */
   function fmtNum(n) {
     if (n === null || n === undefined || Number.isNaN(n))
       return '—'
@@ -732,35 +882,38 @@
     return n.toLocaleString(undefined, { maximumFractionDigits: 4 })
   }
 
+  /**
+   * 渲染变量汇总结果
+   */
   function renderTabulateResult(r, varName, scopeN) {
     const total = r.nValid + r.nMissing
     const missingPct = total > 0 ? (r.nMissing / total * 100).toFixed(1) : '0.0'
     let badge, badgeClass
     if (r.kind === 'discrete') {
-      badge = 'Discrete'
+      badge = bootstrap.l10n.Discrete
       badgeClass = 'var-type-categorical'
     }
     else if (r.kind === 'continuous') {
-      badge = 'Continuous'
+      badge = bootstrap.l10n.Continuous
       badgeClass = 'var-type-continuous'
     }
     else {
-      badge = 'String'
+      badge = bootstrap.l10n.StringType
       badgeClass = 'var-type-string'
     }
 
     let html = `<span class="var-type-badge ${badgeClass}">${badge}</span>`
     if (typeof scopeN === 'number') {
-      html += `<span class="explorer-scope-info">Tabulating ${fmtNum(scopeN)} of ${fmtNum(totalAll)} rows.</span>`
+      html += `<span class="explorer-scope-info">${formatL10n(bootstrap.l10n.TabulatingScope, fmtNum(scopeN), fmtNum(totalAll))}</span>`
     }
-    html += '<div class="explorer-section"><h3>General</h3><div class="stats-grid">'
-    html += `<div class="stat-item"><div class="stat-label">Valid N</div><div class="stat-value">${fmtNum(r.nValid)}</div></div>`
-    html += `<div class="stat-item"><div class="stat-label">Missing</div><div class="stat-value">${fmtNum(r.nMissing)} (${missingPct}%)</div></div>`
+    html += `<div class="explorer-section"><h3>${bootstrap.l10n.General}</h3><div class="stats-grid">`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.ValidN}</div><div class="stat-value">${fmtNum(r.nValid)}</div></div>`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Missing}</div><div class="stat-value">${fmtNum(r.nMissing)} (${missingPct}%)</div></div>`
     if (r.nUnique !== undefined && r.nUnique >= 0) {
-      html += `<div class="stat-item"><div class="stat-label">Unique</div><div class="stat-value">${fmtNum(r.nUnique)}</div></div>`
+      html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Unique}</div><div class="stat-value">${fmtNum(r.nUnique)}</div></div>`
     }
     else if (r.kind === 'continuous' && r.nUnique === -1) {
-      html += `<div class="stat-item"><div class="stat-label">Unique</div><div class="stat-value">&gt; 200</div></div>`
+      html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Unique}</div><div class="stat-value">&gt; 200</div></div>`
     }
     html += '</div></div>'
     if (r.kind === 'discrete')
@@ -771,45 +924,51 @@
     return html
   }
 
+  /**
+   * 渲染离散变量频数表
+   */
   function renderDiscrete(r) {
     const maxFreq = r.entries.reduce((m, e) => Math.max(m, e.freq), 0)
-    let html = '<div class="explorer-section"><h3>Frequency Distribution</h3>'
+    let html = `<div class="explorer-section"><h3>${bootstrap.l10n.FrequencyDistribution}</h3>`
     html += '<table class="freq-table">'
-    html += '<thead><tr><th>Value</th><th>Label</th><th style="text-align:right">Freq</th><th style="text-align:right">%</th><th style="text-align:right">Cum %</th><th>Bar</th></tr></thead><tbody>'
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th style="text-align:right">${bootstrap.l10n.Freq}</th><th style="text-align:right">${bootstrap.l10n.Percent}</th><th style="text-align:right">${bootstrap.l10n.CumPercent}</th><th>${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.entries) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       const lbl = e.label !== undefined && e.label !== null ? escapeHtml(e.label) : ''
       html += `<tr>
-                <td>${escapeHtml(String(e.value))}</td>
-                <td>${lbl}</td>
-                <td style="text-align:right">${fmtNum(e.freq)}</td>
-                <td style="text-align:right">${e.pct.toFixed(2)}</td>
-                <td style="text-align:right">${e.cum.toFixed(2)}</td>
-                <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
-            </tr>`
+          <td>${escapeHtml(String(e.value))}</td>
+          <td>${lbl}</td>
+          <td style="text-align:right">${fmtNum(e.freq)}</td>
+          <td style="text-align:right">${e.pct.toFixed(2)}</td>
+          <td style="text-align:right">${e.cum.toFixed(2)}</td>
+          <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
+        </tr>`
     }
     html += '</tbody></table></div>'
     return html
   }
 
+  /**
+   * 渲染连续变量统计表与图表
+   */
   function renderContinuous(r) {
     let html = ''
-    html += '<div class="explorer-section"><h3>Descriptive Statistics</h3><div class="stats-grid">'
-    html += `<div class="stat-item"><div class="stat-label">Mean</div><div class="stat-value">${fmtNum(r.mean)}</div></div>`
-    html += `<div class="stat-item"><div class="stat-label">Std Dev</div><div class="stat-value">${fmtNum(r.sd)}</div></div>`
-    html += `<div class="stat-item"><div class="stat-label">Min</div><div class="stat-value">${fmtNum(r.min)}</div></div>`
-    html += `<div class="stat-item"><div class="stat-label">Max</div><div class="stat-value">${fmtNum(r.max)}</div></div>`
+    html += `<div class="explorer-section"><h3>${bootstrap.l10n.DescriptiveStatistics}</h3><div class="stats-grid">`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Mean}</div><div class="stat-value">${fmtNum(r.mean)}</div></div>`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.StdDev}</div><div class="stat-value">${fmtNum(r.sd)}</div></div>`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Min}</div><div class="stat-value">${fmtNum(r.min)}</div></div>`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Max}</div><div class="stat-value">${fmtNum(r.max)}</div></div>`
     html += '</div></div>'
-    html += '<div class="explorer-section"><h3>Percentiles</h3><div class="stats-grid">'
+    html += `<div class="explorer-section"><h3>${bootstrap.l10n.Percentiles}</h3><div class="stats-grid">`
     html += `<div class="stat-item"><div class="stat-label">P1</div><div class="stat-value">${fmtNum(r.p1)}</div></div>`
     html += `<div class="stat-item"><div class="stat-label">P25</div><div class="stat-value">${fmtNum(r.p25)}</div></div>`
-    html += `<div class="stat-item"><div class="stat-label">Median</div><div class="stat-value">${fmtNum(r.median)}</div></div>`
+    html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Median}</div><div class="stat-value">${fmtNum(r.median)}</div></div>`
     html += `<div class="stat-item"><div class="stat-label">P75</div><div class="stat-value">${fmtNum(r.p75)}</div></div>`
     html += `<div class="stat-item"><div class="stat-label">P99</div><div class="stat-value">${fmtNum(r.p99)}</div></div>`
     html += '</div></div>'
     const chart = r.chart
     if (chart) {
-      const title = chart.type === 'bars' ? 'Distribution (per value)' : 'Histogram'
+      const title = chart.type === 'bars' ? bootstrap.l10n.DistributionPerValue : bootstrap.l10n.Histogram
       html += `<div class="explorer-section"><h3>${title}</h3>`
       if (chart.type === 'bars')
         html += renderValueBarsSVG(chart.bars)
@@ -819,9 +978,12 @@
     return html
   }
 
+  /**
+   * 渲染整数离散值柱状 SVG
+   */
   function renderValueBarsSVG(bars) {
     if (!bars || bars.length === 0)
-      return '<div>No data</div>'
+      return `<div>${bootstrap.l10n.NoData}</div>`
     const maxCount = bars.reduce((m, b) => Math.max(m, b.count), 0)
     const W = 560
     const H = 220
@@ -844,7 +1006,8 @@
       const h = maxCount > 0 ? (b.count / maxCount) * plotH : 0
       const x = padL + i * slot + (slot - barW) / 2
       const y = padT + plotH - h
-      svg += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" class="hist-bar"><title>${escapeHtml(`${fmtNum(b.value)}  n=${fmtNum(b.count)}`)}</title></rect>`
+      const tt = formatL10n(bootstrap.l10n.ValueCountTitle, fmtNum(b.value), fmtNum(b.count))
+      svg += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" class="hist-bar"><title>${escapeHtml(tt)}</title></rect>`
     })
     const nLabels = Math.min(6, bars.length)
     const step = bars.length > 1 ? (bars.length - 1) / Math.max(1, nLabels - 1) : 0
@@ -857,9 +1020,12 @@
     return svg
   }
 
+  /**
+   * 渲染连续变量直方图 SVG
+   */
   function renderHistogramSVG(bins) {
     if (!bins || bins.length === 0)
-      return '<div>No data</div>'
+      return `<div>${bootstrap.l10n.NoData}</div>`
     const maxCount = bins.reduce((m, b) => Math.max(m, b.count), 0)
     const W = 560
     const H = 220
@@ -881,7 +1047,7 @@
       const h = maxCount > 0 ? (b.count / maxCount) * plotH : 0
       const x = padL + i * barW
       const y = padT + plotH - h
-      const tt = `[${fmtNum(b.lo)}, ${fmtNum(b.hi)})  n=${fmtNum(b.count)}`
+      const tt = formatL10n(bootstrap.l10n.HistogramBinCountTitle, fmtNum(b.lo), fmtNum(b.hi), fmtNum(b.count))
       svg += `<rect x="${x + 0.5}" y="${y}" width="${Math.max(0, barW - 1)}" height="${h}" class="hist-bar"><title>${escapeHtml(tt)}</title></rect>`
     })
     const xLabels = [0, Math.floor(bins.length / 2), bins.length - 1]
@@ -893,25 +1059,32 @@
     return svg
   }
 
+  /**
+   * 渲染字符串变量 Top 值表
+   */
   function renderStringTop(r) {
     const maxFreq = r.topValues.reduce((m, e) => Math.max(m, e.freq), 0)
-    let html = '<div class="explorer-section"><h3>Top 10 Values</h3>'
+    let html = `<div class="explorer-section"><h3>${bootstrap.l10n.Top10Values}</h3>`
     html += '<table class="freq-table">'
-    html += '<thead><tr><th>Value</th><th style="text-align:right">Freq</th><th style="text-align:right">%</th><th>Bar</th></tr></thead><tbody>'
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th style="text-align:right">${bootstrap.l10n.Freq}</th><th style="text-align:right">${bootstrap.l10n.Percent}</th><th>${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.topValues) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       html += `<tr>
-                <td>${escapeHtml(e.value)}</td>
-                <td style="text-align:right">${fmtNum(e.freq)}</td>
-                <td style="text-align:right">${e.pct.toFixed(2)}</td>
-                <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
-            </tr>`
+          <td>${escapeHtml(e.value)}</td>
+          <td style="text-align:right">${fmtNum(e.freq)}</td>
+          <td style="text-align:right">${e.pct.toFixed(2)}</td>
+          <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
+        </tr>`
     }
     html += '</tbody></table></div>'
     return html
   }
 
-  // --- Resize handles ---
+  // ---------- 尺寸拖拽 ----------
+
+  /**
+   * 初始化侧边栏拖拽手柄
+   */
   function initResizeHandle() {
     let isResizing = false
     let startX = 0
@@ -944,9 +1117,16 @@
     })
   }
 
+  /** 正在调整宽度的列 */
   let resizingCol = null
+  /** 列宽拖拽起始 X 坐标 */
   let resizeStartX = 0
+  /** 列宽拖拽起始宽度 */
   let resizeStartWidth = 0
+
+  /**
+   * 初始化列宽拖拽手柄
+   */
   function initColumnResize() {
     const ths = tableHead.querySelectorAll('th')
     ths.forEach((th) => {
@@ -967,7 +1147,7 @@
       const delta = e.clientX - resizeStartX
       const w = Math.max(40, resizeStartWidth + delta)
       resizingCol.style.width = `${w}px`
-      // Persist so sort/filter/paging re-renders keep the chosen width.
+      // 记录用户列宽，避免排序、筛选、分页重绘后丢失。
       const col = resizingCol.dataset.col
       if (col != null)
         colWidths[col] = w

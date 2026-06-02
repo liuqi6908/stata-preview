@@ -6,4 +6,10 @@ export default antfu(
       'no-console': 'off',
     },
   },
+  {
+    files: ['l10n/*.json'],
+    rules: {
+      'style/eol-last': 'off',
+    },
+  },
 )

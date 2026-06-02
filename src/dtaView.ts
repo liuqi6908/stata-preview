@@ -1,181 +1,138 @@
 /**
- * DtaView: stateful query service over a DtaColumnar dataset.
+ * DtaView：针对 DtaColumnar 数据集的有状态查询服务。
  *
- * Holds:
- *   - the columnar data (typed arrays + missing masks),
- *   - a current filter (none yet — added in a later commit),
- *   - a current multi-column sort spec,
- *   - an `indices` Uint32Array that is the permutation of rows after applying filter+sort.
+ * 维护内容：
+ *   - 列式数据（TypedArrays + 缺失值掩码），
+ *   - 当前过滤器配置，
+ *   - 当前多列排序配置，
+ *   - 一个 `indices` Uint32Array，用来表示过滤 + 排序后的行顺序。
  *
- * The webview never sees the full data; it asks for pages via getPage().
+ * Webview 不直接读取全部数据，而是通过 getPage() 请求分页结果。
  */
 
 import type { CompiledFilter } from './filterCompiler'
 import type { DtaColumnar, DtaMeta } from './parser'
 import { compileFilter } from './filterCompiler'
 
+/** 排序配置 */
 export interface SortSpec {
+  /** 排序列 */
   col: string
+  /** 排序方式 */
   dir: 'asc' | 'desc'
 }
 
+/** 筛选配置 */
 export interface FilterSpec {
-  /** Stata-style expression, e.g. `edad > 30 & treatment == 1`. */
+  /** 筛选表达式，例如 `edad > 30 & treatment == 1`。 */
   query: string
 }
 
-export interface PageRequest {
-  offset: number // index into the (filtered+sorted) view
-  limit: number
-}
-
-export interface PageResult {
-  rows: any[][] // limit rows, each is an array aligned with meta.headers
-  rowIndices: number[] // original row index in the file for each returned row
+/** 分页请求参数 */
+interface PageRequest {
+  /** 在（过滤 + 排序后）视图中的起始位置 */
   offset: number
+  /** 分页大小 */
   limit: number
-  totalFiltered: number // size of the current view (after filter)
-  totalAll: number // meta.nobs
 }
 
+/** 分页结果 */
+interface PageResult {
+  /** 行数组，每行与 meta.headers 对齐 */
+  rows: any[][]
+  /** 行在原始文件中的行索引 */
+  rowIndices: number[]
+  /** 在（过滤 + 排序后）视图中的起始位置 */
+  offset: number
+  /** 分页大小 */
+  limit: number
+  /** 当前视图大小（过滤后） */
+  totalFiltered: number
+  /** 原始总观测数（未过滤） */
+  totalAll: number
+}
+
+/**
+ * 针对 DtaColumnar 数据集的有状态查询服务
+ */
 export class DtaView {
   private data: DtaColumnar
   private sortSpec: SortSpec[] = []
   private filterSpec: FilterSpec | null = null
-  // indices is the current view: a permutation of [0..N-1] after filter+sort.
   private indices: Uint32Array
+  private compiledFilter: CompiledFilter | null = null
 
   constructor(data: DtaColumnar) {
     this.data = data
     const N = data.meta.nobs
     this.indices = new Uint32Array(N)
-    for (let i = 0; i < N; i++) this.indices[i] = i
+    for (let i = 0; i < N; i++)
+      this.indices[i] = i
   }
 
-  /** Returns the current view indices (read-only). Used by tabulate to respect the filter. */
-  getIndices(): Uint32Array {
-    return this.indices
-  }
-
-  hasFilter(): boolean {
-    return this.filterSpec !== null && this.filterSpec.query.trim().length > 0
-  }
-
+  /**
+   * 数据集的元数据（表头、类型、标签等）
+   */
   get meta(): DtaMeta {
     return this.data.meta
   }
 
-  get totalAll(): number {
-    return this.data.meta.nobs
-  }
-
+  /**
+   * 当前视图大小（过滤后）
+   */
   get totalFiltered(): number {
     return this.indices.length
   }
 
-  getSort(): SortSpec[] {
-    return [...this.sortSpec]
+  /**
+   * 原始总观测数（未过滤）
+   */
+  get totalAll(): number {
+    return this.data.meta.nobs
   }
 
   /**
-   * Set the multi-column sort. Empty array = restore natural row order.
-   * V8's Array.prototype.sort is stable since Node 12.
+   * 获取当前视图索引
    */
-  setSort(spec: SortSpec[]): void {
-    const valid = spec.filter(s => this.data.columns[s.col] !== undefined)
-    this.sortSpec = valid
+  public getIndices(): Uint32Array {
+    return this.indices
+  }
+
+  /**
+   * 是否存在有效过滤
+   */
+  public hasFilter(): boolean {
+    return this.filterSpec !== null && this.filterSpec.query.trim().length > 0
+  }
+
+  /**
+   * 设置排序配置
+   */
+  public setSort(spec: SortSpec[]): void {
+    this.sortSpec = spec.filter(s => this.data.columns[s.col] !== undefined)
     this.rebuildView()
   }
 
   /**
-   * Set the active filter. Throws FilterCompileError on invalid expressions.
-   * Empty / whitespace-only query clears the filter.
+   * 设置筛选配置
    */
-  setFilter(spec: FilterSpec | null): void {
+  public setFilter(spec: FilterSpec | null): void {
     if (spec && spec.query.trim().length > 0) {
-      // Validate now so caller sees the error before we touch state.
-      compileFilter(spec.query, this.data) // throws on syntax error
+      const compiled = compileFilter(spec.query, this.data)
       this.filterSpec = spec
+      this.compiledFilter = compiled.fn
     }
     else {
       this.filterSpec = null
+      this.compiledFilter = null
     }
     this.rebuildView()
   }
 
-  private rebuildView(): void {
-    // Step 1: filter — produce the set of row indices that pass.
-    const N = this.data.meta.nobs
-    let passing: number[] | null = null
-
-    if (this.filterSpec && this.filterSpec.query.trim().length > 0) {
-      const fn: CompiledFilter = compileFilter(this.filterSpec.query, this.data).fn
-      passing = []
-      for (let i = 0; i < N; i++) {
-        if (fn(i))
-          passing.push(i)
-      }
-    }
-
-    // Step 2: build base indices (filtered or full).
-    let arr: number[]
-    if (passing) {
-      arr = passing
-    }
-    else {
-      arr = Array.from({ length: N })
-      for (let i = 0; i < N; i++) arr[i] = i
-    }
-
-    // Step 3: sort if needed.
-    if (this.sortSpec.length > 0) {
-      const cols = this.sortSpec.map(s => ({
-        arr: this.data.columns[s.col],
-        miss: this.data.missing[s.col],
-        sign: s.dir === 'asc' ? 1 : -1,
-        isString: Array.isArray(this.data.columns[s.col]),
-      }))
-      arr.sort((a, b) => {
-        for (let k = 0; k < cols.length; k++) {
-          const { arr: col, miss, sign, isString } = cols[k]
-          const ma = miss[a]
-          const mb = miss[b]
-          if (ma && !mb)
-            return 1
-          if (!ma && mb)
-            return -1
-          if (ma && mb)
-            continue
-          let cmp: number
-          if (isString) {
-            const sa = (col as string[])[a]
-            const sb = (col as string[])[b]
-            if (sa === sb)
-              cmp = 0
-            else cmp = sa < sb ? -1 : 1
-          }
-          else {
-            const va = (col as any)[a]
-            const vb = (col as any)[b]
-            if (va === vb)
-              cmp = 0
-            else cmp = va < vb ? -1 : 1
-          }
-          if (cmp !== 0)
-            return cmp * sign
-        }
-        return 0
-      })
-    }
-
-    this.indices = Uint32Array.from(arr)
-  }
-
   /**
-   * Read a slice of the current view as row-of-arrays (aligned with meta.headers).
-   * Numeric values come out as plain numbers; missing values come out as null.
+   * 获取分页结果
    */
-  getPage(req: PageRequest): PageResult {
+  public getPage(req: PageRequest): PageResult {
     const total = this.indices.length
     const offset = Math.max(0, Math.min(req.offset, total))
     const limit = Math.max(0, Math.min(req.limit, total - offset))
@@ -184,33 +141,31 @@ export class DtaView {
     const types = this.data.meta.types
     const K = headers.length
 
-    // Pre-resolve columns once for this page.
-    const cols: ColumnRef[] = headers.map((h, j) => ({
-      arr: this.data.columns[h],
+    const cols = headers.map((h, j) => ({
+      col: this.data.columns[h],
       miss: this.data.missing[h],
       type: types[j],
       isString: Array.isArray(this.data.columns[h]),
     }))
 
-    const rows: any[][] = Array.from({ length: limit })
-    const rowIndices: number[] = Array.from({ length: limit })
+    const rows = Array.from<any[]>({ length: limit })
+    const rowIndices = Array.from<number>({ length: limit })
     for (let r = 0; r < limit; r++) {
       const rowIdx = this.indices[offset + r]
       rowIndices[r] = rowIdx
-      const row: any[] = Array.from({ length: K })
+      const row = Array.from<any>({ length: K })
       for (let j = 0; j < K; j++) {
         const c = cols[j]
         if (c.miss[rowIdx]) {
           row[j] = null
         }
         else if (c.isString) {
-          row[j] = (c.arr as string[])[rowIdx]
+          row[j] = c.col[rowIdx]
         }
         else {
-          let v = (c.arr as any)[rowIdx] as number
+          let v = c.col[rowIdx]
           if (c.type === 'float' || c.type === 'double') {
-            // Match the rounding parse() used so the UI looks the same.
-            if (Number.isFinite(v))
+            if (typeof v === 'number' && Number.isFinite(v))
               v = Math.round(v * 1e6) / 1e6
           }
           row[j] = v
@@ -228,11 +183,67 @@ export class DtaView {
       totalAll: this.data.meta.nobs,
     }
   }
-}
 
-interface ColumnRef {
-  arr: any
-  miss: Uint8Array
-  type: string
-  isString: boolean
+  /**
+   * 重新构建视图
+   */
+  private rebuildView(): void {
+    const N = this.data.meta.nobs
+    let arr: number[]
+
+    if (this.compiledFilter) {
+      arr = []
+      for (let i = 0; i < N; i++) {
+        if (this.compiledFilter(i))
+          arr.push(i)
+      }
+    }
+    else {
+      arr = Array.from<number>({ length: N })
+      for (let i = 0; i < N; i++)
+        arr[i] = i
+    }
+
+    if (this.sortSpec.length > 0) {
+      const columns = this.data.columns
+      const missing = this.data.missing
+      const cols = this.sortSpec.map(s => ({
+        col: columns[s.col],
+        miss: missing[s.col],
+        sign: s.dir === 'asc' ? 1 : -1,
+        isString: Array.isArray(columns[s.col]),
+      }))
+
+      arr.sort((a, b) => {
+        for (let k = 0; k < cols.length; k++) {
+          const { col, miss, sign, isString } = cols[k]
+          const ma = miss[a]
+          const mb = miss[b]
+          if (ma && !mb)
+            return 1
+          if (!ma && mb)
+            return -1
+          if (ma && mb)
+            continue
+
+          let cmp: number
+          if (isString) {
+            const sa = col[a]
+            const sb = col[b]
+            cmp = sa === sb ? 0 : (sa < sb ? -1 : 1)
+          }
+          else {
+            const va = col[a]
+            const vb = col[b]
+            cmp = va === vb ? 0 : (va < vb ? -1 : 1)
+          }
+          if (cmp !== 0)
+            return cmp * sign
+        }
+        return 0
+      })
+    }
+
+    this.indices = Uint32Array.from(arr)
+  }
 }

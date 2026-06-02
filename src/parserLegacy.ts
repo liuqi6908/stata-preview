@@ -1,43 +1,52 @@
 /**
- * Parser for legacy Stata .dta formats: 113 (Stata 8/9), 114 (Stata 10/11), 115 (Stata 12).
- * These predate the XML-wrapped 117/118 format and use a fixed-size binary header.
+ * 旧版 Stata .dta 解析器。
  *
- * Layout (LSF byteorder; we reject MSF for now):
- *   header (109 bytes):
- *     0      ds_format    (113 | 114 | 115)
- *     1      byteorder    (1 = HILO/MSF, 2 = LOLO/LSF)
- *     2      filetype     (1 = .dta)
- *     3      unused
- *     4..5   nvar         (uint16)
- *     6..9   nobs         (int32)
- *     10..90 data_label   (81 bytes, NUL-terminated)
- *     91..108 timestamp   (18 bytes, NUL-terminated)
+ * 支持 113（Stata 8/9）、114（Stata 10/11）和 115（Stata 12）。
+ * 这些格式早于 XML 封装的 117/118，使用固定大小的二进制头部。
  *
- *   typlist:    nvar bytes (1..244 = strN; 251=byte; 252=int; 253=long; 254=float; 255=double)
- *   varlist:    nvar * 33 bytes (variable names)
- *   srtlist:    (nvar+1) * 2 bytes
- *   fmtlist:    nvar * 12 bytes (113/114) or 49 bytes (115)
- *   lbllist:    nvar * 33 bytes
- *   variable_labels: nvar * 81 bytes
- *   expansion fields: variable size, terminated by byte 0 + 4 zero bytes
- *   data:       nobs * rowSize bytes
- *   value_labels: variable size, optional
+ * 文件布局（LSF 字节序；当前不支持 MSF）：
+ *   header（109 字节）：
+ *     0        ds_format     (113 | 114 | 115)
+ *     1        byteorder     (1 = HILO/MSF, 2 = LOLO/LSF)
+ *     2        filetype      (1 = .dta)
+ *     3        unused
+ *     4..5     nvar          (uint16)
+ *     6..9     nobs          (int32)
+ *     10..90   data_label    (81 字节，NUL 终止)
+ *     91..108  timestamp     (18 字节，NUL 终止)
  *
- * References: Stata Corp .dta format spec for releases 113–115.
+ *   typlist:           nvar 字节（1..244=strN；251=byte；252=int；253=long；254=float；255=double）
+ *   varlist:           nvar * 33 字节（变量名）
+ *   srtlist:           (nvar+1) * 2 字节
+ *   fmtlist:           nvar * 12 字节（113/114）或 49 字节（115）
+ *   lbllist:           nvar * 33 字节
+ *   variable_labels:   nvar * 81 字节
+ *   expansion fields:  可变长度，以 tag=0 且 len=0 终止
+ *   data:              nobs * rowSize 字节
+ *   value_labels:      可变长度，可选
+ *
+ * 参考：Stata Corp 113-115 版本 .dta 格式规范。
  */
 
 import type { Buffer } from 'node:buffer'
 import type { ColumnArray, DtaColumnar } from './parser'
 
-// ---------- Helpers (mirror parser.ts) ----------
+// ---------- 辅助函数 ----------
 
+/**
+ * 读取 NUL 终止字符串
+ */
 function readCString(buf: Buffer, offset: number, maxLen: number): string {
   let end = offset
   const limit = Math.min(offset + maxLen, buf.length)
-  while (end < limit && buf[end] !== 0) end++
+  while (end < limit && buf[end] !== 0)
+    end++
   return buf.toString('latin1', offset, end)
 }
 
+/**
+ * 判断旧版数值是否为 Stata 缺失值
+ */
 function isMissingNumeric(v: number, t: string): boolean {
   if (v === null || v === undefined || Number.isNaN(v))
     return true
@@ -54,6 +63,9 @@ function isMissingNumeric(v: number, t: string): boolean {
   return false
 }
 
+/**
+ * 根据变量类型分配列存储
+ */
 function allocColumn(type: string, n: number): ColumnArray {
   if (type === 'byte')
     return new Int8Array(n)
@@ -68,6 +80,9 @@ function allocColumn(type: string, n: number): ColumnArray {
   return Array.from<string>({ length: n }).fill('')
 }
 
+/**
+ * 解码旧版类型代码
+ */
 function decodeLegacyType(code: number): { type: string, size: number } | null {
   if (code === 251)
     return { type: 'byte', size: 1 }
@@ -84,8 +99,114 @@ function decodeLegacyType(code: number): { type: string, size: number } | null {
   return null
 }
 
-// ---------- Layout extraction ----------
+/**
+ * 初始化列存储、缺失值掩码与行内列偏移
+ */
+function createLegacyColumns(headers: string[], types: string[], typeSizes: number[], nobs: number) {
+  const columns: { [name: string]: ColumnArray } = {}
+  const missing: { [name: string]: Uint8Array } = {}
+  const colOffsets: number[] = []
+  let acc = 0
+  for (let j = 0; j < types.length; j++) {
+    colOffsets.push(acc)
+    acc += typeSizes[j]
+  }
+  for (let j = 0; j < headers.length; j++) {
+    columns[headers[j]] = allocColumn(types[j], nobs)
+    missing[headers[j]] = new Uint8Array(nobs)
+  }
+  return { columns, missing, colOffsets }
+}
 
+/**
+ * 读取一行数据并写入列式存储
+ */
+function readLegacyRow(
+  buf: Buffer,
+  rowOff: number,
+  i: number,
+  headers: string[],
+  types: string[],
+  typeSizes: number[],
+  columns: { [name: string]: ColumnArray },
+  missing: { [name: string]: Uint8Array },
+  colOffsets: number[],
+) {
+  const nvar = headers.length
+  for (let j = 0; j < nvar; j++) {
+    const off = rowOff + colOffsets[j]
+    const t = types[j]
+    const size = typeSizes[j]
+    const col = columns[headers[j]]
+    const miss = missing[headers[j]]
+    try {
+      switch (t) {
+        case 'byte': {
+          const v = buf.readInt8(off)
+          if (isMissingNumeric(v, 'byte'))
+            miss[i] = 1
+          else
+            col[i] = v
+          break
+        }
+        case 'int': {
+          const v = buf.readInt16LE(off)
+          if (isMissingNumeric(v, 'int'))
+            miss[i] = 1
+          else
+            col[i] = v
+          break
+        }
+        case 'long': {
+          const v = buf.readInt32LE(off)
+          if (isMissingNumeric(v, 'long'))
+            miss[i] = 1
+          else
+            col[i] = v
+          break
+        }
+        case 'float': {
+          const v = buf.readFloatLE(off)
+          if (isMissingNumeric(v, 'float')) {
+            miss[i] = 1
+            col[i] = Number.NaN
+          }
+          else {
+            col[i] = v
+          }
+          break
+        }
+        case 'double': {
+          const v = buf.readDoubleLE(off)
+          if (isMissingNumeric(v, 'double')) {
+            miss[i] = 1
+            col[i] = Number.NaN
+          }
+          else {
+            col[i] = v
+          }
+          break
+        }
+        default: {
+          if (t.startsWith('str')) {
+            const s = readCString(buf, off, size)
+            if (s.length === 0)
+              miss[i] = 1
+            col[i] = s
+          }
+          break
+        }
+      }
+    }
+    catch {
+      miss[i] = 1
+    }
+  }
+}
+
+// ---------- 布局提取 ----------
+
+/** 旧版 Stata 文件的布局信息 */
 interface LegacyLayout {
   release: 113 | 114 | 115
   nvar: number
@@ -96,16 +217,19 @@ interface LegacyLayout {
   typeSizes: number[]
   rowSize: number
   dataStart: number
-  valueLabelsStart: number // -1 if absent
+  valueLabelsStart: number
   valueLabels: { [varName: string]: { [v: number]: string } }
 }
 
+/**
+ * 解析文件头与元数据
+ */
 function computeLegacyLayout(buf: Buffer): LegacyLayout {
   const ds = buf[0]
   if (ds !== 113 && ds !== 114 && ds !== 115) {
     throw new Error(`Not a legacy Stata dta (format ${ds}).`)
   }
-  const release = ds as 113 | 114 | 115
+  const release = ds
   const byteorder = buf[1]
   if (byteorder !== 2) {
     throw new Error('Big-endian (MSF) legacy Stata files are not supported.')
@@ -122,9 +246,9 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   if (nvar < 0 || nvar > 32767)
     throw new Error(`Implausible nvar: ${nvar}`)
 
-  let off = 109 // after header
+  let off = 109
 
-  // typlist
+  // 类型列表
   const types: string[] = []
   const typeSizes: number[] = []
   for (let j = 0; j < nvar; j++) {
@@ -137,35 +261,35 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   }
   off += nvar
 
-  // varlist (33 bytes each)
+  // 变量名列表
   const headers: string[] = []
   for (let j = 0; j < nvar; j++) {
     headers.push(readCString(buf, off + j * 33, 33))
   }
   off += nvar * 33
 
-  // srtlist: (nvar+1) * 2 bytes
+  // 排序列表
   off += (nvar + 1) * 2
 
-  // fmtlist: 12 bytes (113/114) or 49 bytes (115) per variable
+  // 显示格式列表
   const fmtLen = release === 115 ? 49 : 12
   off += nvar * fmtLen
 
-  // lbllist (value-label name attached to each var): 33 bytes each
+  // 每个变量绑定的值标签名称
   const lblNames: string[] = []
   for (let j = 0; j < nvar; j++) {
     lblNames.push(readCString(buf, off + j * 33, 33))
   }
   off += nvar * 33
 
-  // variable_labels: 81 bytes each
+  // 变量标签
   const labels: string[] = []
   for (let j = 0; j < nvar; j++) {
     labels.push(readCString(buf, off + j * 81, 81))
   }
   off += nvar * 81
 
-  // expansion fields: list of (1-byte tag, 4-byte length, payload). Terminated by tag=0 with len=0.
+  // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止
   while (off + 5 <= buf.length) {
     const tag = buf[off]
     const len = buf.readInt32LE(off + 1)
@@ -182,26 +306,26 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   const dataStart = off
   const dataEnd = dataStart + nobs * rowSize
 
-  // Value labels live after the data block (optional). We parse them to map each
-  // variable's lbllist[j] to a set of {value: label} entries.
+  // 值标签表位于数据块之后，可选
   const valueLabels: { [name: string]: { [v: number]: string } } = {}
   if (dataEnd <= buf.length) {
     let vlOff = dataEnd
-    // Each value-label table:
-    //   int32   len (size of the rest of the table after this header? — actually total len of n,txtlen,off[],val[],txt minus 5? See spec.)
-    //   char[33] labname
-    //   char[3]  pad
-    //   int32   n
-    //   int32   txtlen
-    //   int32   off[n]
-    //   int32   val[n]
+    // 值标签表结构：
+    //   int32        len（后续表内容长度）
+    //   char[33]     labname
+    //   char[3]      填充
+    //   int32        n
+    //   int32        txtlen
+    //   int32        off[n]
+    //   int32        val[n]
     //   char[txtlen] txt
     while (vlOff + 4 + 33 + 3 + 4 + 4 <= buf.length) {
-      const tableLen = buf.readInt32LE(vlOff) // length of the table that follows (after this 4-byte field's purpose differs by version, but we'll trust n/txtlen)
+      // 不同版本对 tableLen 的解释略有差异，这里以 n/txtlen 校验为准
+      const tableLen = buf.readInt32LE(vlOff)
       vlOff += 4
       const lblName = readCString(buf, vlOff, 33)
       vlOff += 33
-      vlOff += 3 // padding
+      vlOff += 3
       if (vlOff + 8 > buf.length)
         break
       const n = buf.readInt32LE(vlOff)
@@ -236,13 +360,12 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
       if (lblName)
         valueLabels[lblName] = map
       vlOff = txtEnd
-      // tableLen tells us total bytes consumed from "lblName" onward; we already
-      // advanced by exactly that, so trust our cursor and move on.
+      // tableLen 不直接参与游标计算
       void tableLen
     }
   }
 
-  // Map each variable to its value-label table via lblNames.
+  // 将变量绑定到对应的值标签表
   const varValueLabels: { [varName: string]: { [v: number]: string } } = {}
   for (let j = 0; j < nvar; j++) {
     const ln = lblNames[j]
@@ -265,87 +388,21 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   }
 }
 
-// ---------- Public entry points ----------
+// ---------- 公共入口 ----------
 
+/**
+ * 同步解析旧版 .dta 为列式数据
+ */
 export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
   const layout = computeLegacyLayout(buf)
-  const { nvar, nobs, headers, types, typeSizes, rowSize, dataStart } = layout
-
-  const columns: { [name: string]: ColumnArray } = {}
-  const missing: { [name: string]: Uint8Array } = {}
-  const colOffsets: number[] = []
-  {
-    let acc = 0
-    for (let j = 0; j < nvar; j++) {
-      colOffsets.push(acc)
-      acc += typeSizes[j]
-    }
-  }
-  for (let j = 0; j < nvar; j++) {
-    columns[headers[j]] = allocColumn(types[j], nobs)
-    missing[headers[j]] = new Uint8Array(nobs)
-  }
+  const { nobs, headers, types, typeSizes, rowSize, dataStart } = layout
+  const { columns, missing, colOffsets } = createLegacyColumns(headers, types, typeSizes, nobs)
 
   for (let i = 0; i < nobs; i++) {
     const rowOff = dataStart + i * rowSize
     if (rowOff + rowSize > buf.length)
       break
-    for (let j = 0; j < nvar; j++) {
-      const off = rowOff + colOffsets[j]
-      const t = types[j]
-      const size = typeSizes[j]
-      const col = columns[headers[j]]
-      const miss = missing[headers[j]]
-      try {
-        if (t === 'byte') {
-          const v = buf.readInt8(off)
-          if (isMissingNumeric(v, 'byte'))
-            miss[i] = 1
-          else (col as Int8Array)[i] = v
-        }
-        else if (t === 'int') {
-          const v = buf.readInt16LE(off)
-          if (isMissingNumeric(v, 'int'))
-            miss[i] = 1
-          else (col as Int16Array)[i] = v
-        }
-        else if (t === 'long') {
-          const v = buf.readInt32LE(off)
-          if (isMissingNumeric(v, 'long'))
-            miss[i] = 1
-          else (col as Int32Array)[i] = v
-        }
-        else if (t === 'float') {
-          const v = buf.readFloatLE(off)
-          if (isMissingNumeric(v, 'float')) {
-            miss[i] = 1;
-            (col as Float32Array)[i] = Number.NaN
-          }
-          else {
-            (col as Float32Array)[i] = v
-          }
-        }
-        else if (t === 'double') {
-          const v = buf.readDoubleLE(off)
-          if (isMissingNumeric(v, 'double')) {
-            miss[i] = 1;
-            (col as Float64Array)[i] = Number.NaN
-          }
-          else {
-            (col as Float64Array)[i] = v
-          }
-        }
-        else if (t.startsWith('str')) {
-          const s = readCString(buf, off, size)
-          if (s.length === 0)
-            miss[i] = 1;
-          (col as string[])[i] = s
-        }
-      }
-      catch {
-        miss[i] = 1
-      }
-    }
+    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets)
   }
 
   return {
@@ -356,9 +413,7 @@ export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
       typeSizes,
       valueLabels: layout.valueLabels,
       nobs,
-      // We reuse 117 as the meta release marker for downstream code that branches on it;
-      // legacy formats don't influence anything beyond the parser. If a caller really needs
-      // the original release, add a separate field — but right now nothing does.
+      // 下游按 117/118 分支处理，这里用 117 标记列式结果。
       release: 117,
     },
     columns,
@@ -366,31 +421,23 @@ export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
   }
 }
 
+/**
+ * 异步解析旧版 .dta 为列式数据
+ */
 export async function parseColumnarLegacyAsync(
   buf: Buffer,
   opts: {
+    /** 进度回调 */
     onProgress?: (rowsRead: number, totalRows: number) => void
+    /** 进度回调间隔 */
     progressStep?: number
+    /** 让出事件循环的行数间隔 */
     yieldEvery?: number
   } = {},
 ): Promise<DtaColumnar> {
   const layout = computeLegacyLayout(buf)
-  const { nvar, nobs, headers, types, typeSizes, rowSize, dataStart } = layout
-
-  const columns: { [name: string]: ColumnArray } = {}
-  const missing: { [name: string]: Uint8Array } = {}
-  const colOffsets: number[] = []
-  {
-    let acc = 0
-    for (let j = 0; j < nvar; j++) {
-      colOffsets.push(acc)
-      acc += typeSizes[j]
-    }
-  }
-  for (let j = 0; j < nvar; j++) {
-    columns[headers[j]] = allocColumn(types[j], nobs)
-    missing[headers[j]] = new Uint8Array(nobs)
-  }
+  const { nobs, headers, types, typeSizes, rowSize, dataStart } = layout
+  const { columns, missing, colOffsets } = createLegacyColumns(headers, types, typeSizes, nobs)
 
   const progressStep = opts.progressStep ?? 10000
   const yieldEvery = opts.yieldEvery ?? 20000
@@ -400,62 +447,7 @@ export async function parseColumnarLegacyAsync(
     const rowOff = dataStart + i * rowSize
     if (rowOff + rowSize > buf.length)
       break
-    for (let j = 0; j < nvar; j++) {
-      const off = rowOff + colOffsets[j]
-      const t = types[j]
-      const size = typeSizes[j]
-      const col = columns[headers[j]]
-      const miss = missing[headers[j]]
-      try {
-        if (t === 'byte') {
-          const v = buf.readInt8(off)
-          if (isMissingNumeric(v, 'byte'))
-            miss[i] = 1
-          else (col as Int8Array)[i] = v
-        }
-        else if (t === 'int') {
-          const v = buf.readInt16LE(off)
-          if (isMissingNumeric(v, 'int'))
-            miss[i] = 1
-          else (col as Int16Array)[i] = v
-        }
-        else if (t === 'long') {
-          const v = buf.readInt32LE(off)
-          if (isMissingNumeric(v, 'long'))
-            miss[i] = 1
-          else (col as Int32Array)[i] = v
-        }
-        else if (t === 'float') {
-          const v = buf.readFloatLE(off)
-          if (isMissingNumeric(v, 'float')) {
-            miss[i] = 1;
-            (col as Float32Array)[i] = Number.NaN
-          }
-          else {
-            (col as Float32Array)[i] = v
-          }
-        }
-        else if (t === 'double') {
-          const v = buf.readDoubleLE(off)
-          if (isMissingNumeric(v, 'double')) {
-            miss[i] = 1;
-            (col as Float64Array)[i] = Number.NaN
-          }
-          else {
-            (col as Float64Array)[i] = v
-          }
-        }
-        else if (t.startsWith('str')) {
-          const s = readCString(buf, off, size)
-          if (s.length === 0)
-            miss[i] = 1;
-          (col as string[])[i] = s
-        }
-      }
-      catch {
-        miss[i] = 1
-      }
-    }
+    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets)
     if (onProgress && (i + 1) % progressStep === 0)
       onProgress(i + 1, nobs)
     if ((i + 1) % yieldEvery === 0)
@@ -480,13 +472,7 @@ export async function parseColumnarLegacyAsync(
 }
 
 /**
- * Tabulate over a single column for a legacy file. Mirrors DtaParser.tabulate
- * but reads from the legacy header layout. We don't need this if the caller
- * already has a DtaColumnar (which they do, because parseColumnarLegacy gives
- * them one) — so we just expose that path through the existing tabulate by
- * delegating column reads. For now, the editor calls DtaParser.tabulate with
- * the already-parsed buffer; legacy files require a different code path, so
- * we add it here only if we hit that need. (See dispatch in editorProvider.)
+ * 判断 Buffer 是否为旧版 Stata .dta 格式
  */
 export function isLegacyDtaFormat(buf: Buffer): boolean {
   if (buf.length < 4)

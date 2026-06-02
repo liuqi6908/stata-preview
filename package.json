@@ -24,6 +24,7 @@
   ],
   "main": "./dist/extension.js",
   "icon": "media/logo.png",
+  "l10n": "./l10n",
   "engines": {
     "vscode": "^1.120.0"
   },
@@ -47,12 +48,14 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint . --fix",
+    "l10n": "npx @vscode/l10n-dev export --outDir ./l10n ./src",
     "build": "vsce package"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.0.0",
     "@types/node": "24.x",
     "@types/vscode": "^1.120.0",
+    "@vscode/l10n-dev": "^0.0.35",
     "esbuild": "^0.28.0",
     "eslint": "^10.4.0",
     "typescript": "^5.9.3"

@@ -1,46 +1,55 @@
 /**
- * Filter expression compiler.
+ * 过滤表达式编译器。
  *
- * Compiles a Stata-flavored expression like
- *     edad > 30 & (treatment == 1 | y1 < 1000)
- * into a function `(rowIdx) => boolean` that operates directly on a DtaColumnar's
- * TypedArrays + missing masks.
+ * 将 Stata 风格的筛选表达式（例如：
+ *   edad > 30 & (treatment == 1 | y1 < 1000)
+ * ）编译为 `(rowIdx) => boolean`，并直接在 DtaColumnar 的列式数据与
+ * 缺失值掩码上求值。
  *
- * Operators (in precedence order, low to high):
- *   |        OR       (also accepts `||`)
- *   &        AND      (also accepts `&&`)
- *   ! / not  NOT (unary)
- *   ==, !=, ~=, <, <=, >, >=     comparisons
+ * 运算符（按优先级从低到高）：
+ *   |        OR      （也接受 `||`）
+ *   &        AND     （也接受 `&&`）
+ *   ! / not  NOT     （一元）
+ *   ==, !=, ~=, <, <=, >, >= 比较运算
  *
- * Operands:
- *   - numeric literals: 12, -3.5, 1e6
- *   - string literals: "foo" or 'foo'
- *   - bare variable names (must match a column header)
- *   - parenthesized sub-expressions
+ * 操作数：
+ *   - 数值字面量：12, 3.5, 1e6
+ *   - 字符串字面量："foo" 或 'foo'
+ *   - 变量名（必须匹配列头）
+ *   - 括号表达式
  *
- * Missing semantics: any comparison involving a missing operand is FALSE
- * (Stata's behavior is more nuanced — missing > all numbers — but for filtering
- * "give me rows where edad > 30" it's almost never what users want to include
- * missings, so we exclude them).
+ * 缺失值语义：缺失值参与比较时，该比较结果为 false。
  */
 
 import type { DtaColumnar } from './parser'
+import { l10n } from 'vscode'
 
+/** 编译缓存 */
+const compileCache: WeakMap<DtaColumnar, Map<string, CompileResult>> = new WeakMap()
+
+/** 编译过滤函数 */
 export type CompiledFilter = (rowIdx: number) => boolean
 
+/** 编译结果 */
 export interface CompileResult {
+  /** 可执行过滤函数 */
   fn: CompiledFilter
+  /** 表达式中引用到的变量名 */
   referencedVars: string[]
 }
 
+/**
+ * 过滤表达式编译错误
+ */
 export class FilterCompileError extends Error {
   constructor(message: string, public position?: number) {
     super(message)
   }
 }
 
-// ---------- Tokenizer ----------
+// ---------- 词元解析 ----------
 
+/** 词元类型 */
 type TokenType
   = | 'NUMBER' | 'STRING' | 'IDENT'
     | 'LPAREN' | 'RPAREN'
@@ -48,24 +57,56 @@ type TokenType
     | 'EQ' | 'NEQ' | 'LT' | 'LE' | 'GT' | 'GE'
     | 'EOF'
 
+/**
+ * 词元类型的用户可见名称
+ */
+function tokenTypeLabel(type: TokenType): string {
+  switch (type) {
+    case 'NUMBER': return l10n.t('number literal')
+    case 'STRING': return l10n.t('string literal')
+    case 'IDENT': return l10n.t('variable name')
+    case 'LPAREN': return l10n.t('left parenthesis')
+    case 'RPAREN': return l10n.t('right parenthesis')
+    case 'AND': return l10n.t('AND operator')
+    case 'OR': return l10n.t('OR operator')
+    case 'NOT': return l10n.t('NOT operator')
+    case 'EQ': return l10n.t('equality operator')
+    case 'NEQ': return l10n.t('inequality operator')
+    case 'LT': return l10n.t('less-than operator')
+    case 'LE': return l10n.t('less-than-or-equal operator')
+    case 'GT': return l10n.t('greater-than operator')
+    case 'GE': return l10n.t('greater-than-or-equal operator')
+    case 'EOF': return l10n.t('end of expression')
+  }
+}
+
+/** 词元 */
 interface Token {
+  /** 类型 */
   type: TokenType
+  /** 值 */
   value: string
+  /** 位置 */
   pos: number
 }
 
+/**
+ * 将表达式字符串拆分为词元序列
+ */
 function tokenize(src: string): Token[] {
   const tokens: Token[] = []
   let i = 0
-  while (i < src.length) {
+  const L = src.length
+  while (i < L) {
     const c = src[i]
-    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+    // 空白字符
+    if (/\s/.test(c)) {
       i++
       continue
     }
     const start = i
 
-    // Strings
+    // 字符串字面量
     if (c === '"' || c === '\'') {
       const quote = c
       i++
@@ -80,29 +121,28 @@ function tokenize(src: string): Token[] {
         }
       }
       if (i >= src.length)
-        throw new FilterCompileError('Unterminated string literal', start)
-      i++ // closing quote
+        throw new FilterCompileError(l10n.t('Unterminated string literal'), start)
+      i++
       tokens.push({ type: 'STRING', value: s, pos: start })
       continue
     }
 
-    // Numbers (including leading minus is handled at parse-time as unary)
+    // 数字字面量
     if (c >= '0' && c <= '9') {
       let s = ''
       while (i < src.length && /[0-9.e+\-]/i.test(src[i])) {
-        // Stop if + or - is not part of an exponent.
         if ((src[i] === '+' || src[i] === '-') && !(s.endsWith('e') || s.endsWith('E')))
           break
         s += src[i++]
       }
       const n = Number(s)
       if (Number.isNaN(n))
-        throw new FilterCompileError(`Invalid number: ${s}`, start)
+        throw new FilterCompileError(l10n.t('Invalid number: {0}', s), start)
       tokens.push({ type: 'NUMBER', value: s, pos: start })
       continue
     }
 
-    // Operators
+    // 操作符与标点
     if (c === '(') {
       tokens.push({ type: 'LPAREN', value: '(', pos: start })
       i++
@@ -123,6 +163,7 @@ function tokenize(src: string): Token[] {
       i += (src[i + 1] === '|' ? 2 : 1)
       continue
     }
+
     if (c === '=' && src[i + 1] === '=') {
       tokens.push({ type: 'EQ', value: '==', pos: start })
       i += 2
@@ -164,7 +205,7 @@ function tokenize(src: string): Token[] {
       continue
     }
 
-    // Identifiers (variable names). Stata-valid: letters, digits, _, must not start with digit.
+    // 标识符（变量名）。Stata 合法：字母、数字、下划线，不能以数字开头。
     if (/[A-Z_]/i.test(c)) {
       let s = ''
       while (i < src.length && /\w/.test(src[i])) s += src[i++]
@@ -184,14 +225,15 @@ function tokenize(src: string): Token[] {
       continue
     }
 
-    throw new FilterCompileError(`Unexpected character '${c}'`, start)
+    throw new FilterCompileError(l10n.t('Unexpected character "{0}"', c), start)
   }
   tokens.push({ type: 'EOF', value: '', pos: src.length })
   return tokens
 }
 
-// ---------- Parser → AST ----------
+// ---------- 语法解析 ----------
 
+/** AST 节点 */
 type Node
   = | { kind: 'num', value: number }
     | { kind: 'str', value: string }
@@ -201,26 +243,36 @@ type Node
     | { kind: 'and', a: Node, b: Node }
     | { kind: 'or', a: Node, b: Node }
 
+/**
+ * 简单递归下降解析器，将词元序列解析为 AST
+ */
 class Parser {
   private p = 0
-  constructor(private tokens: Token[]) { }
 
-  private peek(): Token { return this.tokens[this.p] }
-  private consume(): Token { return this.tokens[this.p++] }
-  private expect(type: TokenType): Token {
-    const t = this.peek()
-    if (t.type !== type)
-      throw new FilterCompileError(`Expected ${type}, got ${t.type} '${t.value}'`, t.pos)
-    return this.consume()
-  }
+  constructor(private tokens: Token[]) {}
 
-  parse(): Node {
+  public parse(): Node {
     const expr = this.parseOr()
     if (this.peek().type !== 'EOF') {
       const t = this.peek()
-      throw new FilterCompileError(`Unexpected token '${t.value}'`, t.pos)
+      throw new FilterCompileError(l10n.t('Unexpected token "{0}"', t.value), t.pos)
     }
     return expr
+  }
+
+  private peek(): Token {
+    return this.tokens[this.p]
+  }
+
+  private consume(): Token {
+    return this.tokens[this.p++]
+  }
+
+  private expect(type: TokenType): Token {
+    const t = this.peek()
+    if (t.type !== type)
+      throw new FilterCompileError(l10n.t('Expected {0}, got {1} "{2}"', tokenTypeLabel(type), tokenTypeLabel(t.type), t.value), t.pos)
+    return this.consume()
   }
 
   private parseOr(): Node {
@@ -288,16 +340,20 @@ class Parser {
       this.consume()
       return { kind: 'var', name: t.value }
     }
-    throw new FilterCompileError(`Unexpected token '${t.value}'`, t.pos)
+    throw new FilterCompileError(l10n.t('Unexpected token "{0}"', t.value), t.pos)
   }
 }
 
-// ---------- Compiler: AST → CompiledFilter ----------
+// ---------- 表达式编译 ----------
 
+/** 值解析器 */
 type Resolver = (rowIdx: number) =>
   | { v: number | string, missing: false }
   | { v: null, missing: true }
 
+/**
+ * 编译值表达式，并记录引用到的变量名
+ */
 function compileVal(
   node: Node,
   data: DtaColumnar,
@@ -315,22 +371,24 @@ function compileVal(
     const arr = data.columns[node.name]
     const miss = data.missing[node.name]
     if (!arr) {
-      throw new FilterCompileError(`Unknown variable: ${node.name}`)
+      throw new FilterCompileError(l10n.t('Unknown variable: {0}', node.name))
     }
     referenced.add(node.name)
-    const isString = Array.isArray(arr)
-    if (isString) {
-      const sa = arr as string[]
+    if (Array.isArray(arr)) {
+      const sa = arr
       return (i: number) => miss[i] ? { v: null, missing: true } : { v: sa[i], missing: false }
     }
     else {
-      const na = arr as { [k: number]: number }
-      return (i: number) => miss[i] ? { v: null, missing: true } : { v: na[i] as number, missing: false }
+      const na = arr
+      return (i: number) => miss[i] ? { v: null, missing: true } : { v: na[i], missing: false }
     }
   }
-  throw new FilterCompileError(`Expected a value, got expression of kind '${node.kind}'`)
+  throw new FilterCompileError(l10n.t('Expected a value, got expression of kind "{0}"', node.kind))
 }
 
+/**
+ * 编译布尔表达式节点
+ */
 function compileBool(
   node: Node,
   data: DtaColumnar,
@@ -361,8 +419,8 @@ function compileBool(
       const B = rb(i)
       if (B.missing)
         return false
-      const va = A.v as any
-      const vb = B.v as any
+      const va = A.v
+      const vb = B.v
       switch (op) {
         case 'eq': return va === vb
         case 'neq': return va !== vb
@@ -373,7 +431,7 @@ function compileBool(
       }
     }
   }
-  // A bare var/num/str expression at the top level: truthy if non-zero / non-empty / not missing.
+  // 顶层值表达式按非零、非空、非缺失判断真值
   if (node.kind === 'num') {
     const truthy = node.value !== 0
     return () => truthy
@@ -390,24 +448,37 @@ function compileBool(
         return false
       if (typeof x.v === 'number')
         return x.v !== 0
-      return (x.v as string).length > 0
+      return x.v.length > 0
     }
   }
-  // Unreachable
-  throw new FilterCompileError(`Cannot evaluate node`)
+  throw new FilterCompileError(l10n.t('Cannot evaluate expression node'))
 }
 
 /**
- * Public entry point. Throws FilterCompileError on syntax/semantic errors.
+ * 编译过滤表达式
  */
 export function compileFilter(expression: string, data: DtaColumnar): CompileResult {
   const trimmed = expression.trim()
   if (!trimmed) {
     return { fn: () => true, referencedVars: [] }
   }
+  // 以数据集对象为弱键缓存编译结果
+  let dataCache = compileCache.get(data)
+  if (dataCache) {
+    const cached = dataCache.get(trimmed)
+    if (cached)
+      return cached
+  }
+  else {
+    dataCache = new Map()
+    compileCache.set(data, dataCache)
+  }
+
   const tokens = tokenize(trimmed)
   const ast = new Parser(tokens).parse()
   const referenced = new Set<string>()
   const fn = compileBool(ast, data, referenced)
-  return { fn, referencedVars: [...referenced] }
+  const result: CompileResult = { fn, referencedVars: [...referenced] }
+  dataCache.set(trimmed, result)
+  return result
 }

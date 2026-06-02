@@ -1,113 +1,188 @@
 /**
- * Stata .dta parser for VS Code extension.
- * Supports Stata format 117 (Stata 13) and 118 (Stata 14+) natively, and
- * dispatches to ./parserLegacy for pre-13 binary formats 113, 114, 115.
+ * VS Code 扩展用的 Stata .dta 解析器。
  *
- * Reference: https://www.stata.com/help.cgi?dta
+ * 原生支持 Stata 格式 117（Stata 13）和 118（Stata 14+），
+ * 对于 113、114、115 等旧版二进制格式则派发到 ./parserLegacy 处理。
+ *
+ * 参考：https://www.stata.com/help.cgi?dta
  */
+
 import { Buffer } from 'node:buffer'
 import { isLegacyDtaFormat, parseColumnarLegacy, parseColumnarLegacyAsync } from './parserLegacy'
 
+/** 行式预览数据 */
 export interface DtaData {
+  /** 变量名列表 */
   headers: string[]
+  /** 变量标签列表 */
   labels: string[]
+  /** 预览行数据，每行与 headers 对齐 */
   rows: any[][]
+  /** 变量到值标签表的映射 */
   valueLabels?: { [varName: string]: { [value: number]: string } }
+  /** 原始总观测数 */
   nobs?: number
 }
 
 /**
- * Columnar representation: each variable's data lives in a typed array
- * (or string[] for string vars). Missingness is tracked separately so we
- * never confuse a real value (e.g. 0) with a missing one.
+ * 列式表示：每个变量的数据存储在 TypedArray 中，
+ * 字符串变量则使用 string[]。
+ * 缺失值单独记录，避免将真实值（例如 0）误认为缺失。
  */
 export type ColumnArray
   = | Int8Array | Int16Array | Int32Array
     | Float32Array | Float64Array
     | string[]
 
+/** 数据集元信息 */
 export interface DtaMeta {
+  /** 变量名列表 */
   headers: string[]
+  /** 变量标签列表 */
   labels: string[]
-  types: string[] // 'byte' | 'int' | 'long' | 'float' | 'double' | 'strN'
+  /** 内部变量类型 */
+  types: string[]
+  /** 每个变量在单行数据中的字节大小 */
   typeSizes: number[]
+  /** 变量到值标签表的映射 */
   valueLabels: { [varName: string]: { [value: number]: string } }
-  nobs: number // total N (full file)
+  /** 原始总观测数 */
+  nobs: number
+  /** 解析后的 Stata release 标记 */
   release: 117 | 118
 }
 
+/** 列式数据集 */
 export interface DtaColumnar {
+  /** 数据集元信息 */
   meta: DtaMeta
+  /** 每个变量对应一列 */
   columns: { [varName: string]: ColumnArray }
-  missing: { [varName: string]: Uint8Array } // 1 = missing, 0 = valid
+  /** 缺失值掩码：1 = 缺失，0 = 有效 */
+  missing: { [varName: string]: Uint8Array }
 }
 
+/** 列式解析配置 */
 export interface ParseColumnarOptions {
-  /** Optional progress callback: called every ~progressStep rows during the data scan. */
+  /** 进度回调 */
   onProgress?: (rowsRead: number, totalRows: number) => void
+  /** 进度回调间隔 */
   progressStep?: number
 }
 
+/** 异步列式解析配置 */
 export interface ParseColumnarAsyncOptions extends ParseColumnarOptions {
-  /** Yield to the event loop every ~yieldEvery rows so postMessage progress reaches the UI. */
+  /** 让出事件循环的行数间隔 */
   yieldEvery?: number
 }
 
+/**
+ * 离散变量的汇总结果。
+ * 适用于拥有值标签或唯一值较少的变量。
+ */
 export interface DiscreteTab {
+  /** 汇总类型 */
   kind: 'discrete'
+  /** 变量名 */
   varName: string
+  /** 有效观测数 */
   nValid: number
+  /** 缺失观测数 */
   nMissing: number
+  /** 按值统计的频数、百分比和累计百分比 */
   entries: { value: any, label?: string, freq: number, pct: number, cum: number }[]
 }
 
+/**
+ * 连续变量的汇总结果。
+ * 包含分位数、均值、标准差和可用于绘图的直方图/柱状图数据。
+ */
 export interface ContinuousTab {
+  /** 汇总类型 */
   kind: 'continuous'
+  /** 变量名 */
   varName: string
+  /** 有效观测数 */
   nValid: number
+  /** 缺失观测数 */
   nMissing: number
+  /** 最小值 */
   min: number
+  /** 最大值 */
   max: number
+  /** 均值 */
   mean: number
+  /** 标准差 */
   sd: number
+  /** 中位数 */
   median: number
+  /** 1% 分位数 */
   p1: number
+  /** 25% 分位数 */
   p25: number
+  /** 75% 分位数 */
   p75: number
+  /** 99% 分位数 */
   p99: number
-  // Either a binned histogram (for truly continuous data) OR a per-value
-  // bar chart (for integer-valued discrete data with 21..MAX_INT_BAR_VALUES uniques).
+  /** 图表数据 */
   chart:
     | { type: 'histogram', bins: { bin: number, lo: number, hi: number, count: number }[] }
     | { type: 'bars', bars: { value: number, count: number }[] }
-  nUnique: number // exact if <= cap, else -1 sentinel
+  /** 唯一值数量；超过统计上限时为 -1 */
+  nUnique: number
 }
 
+/**
+ * 字符串变量的汇总结果。
+ * 包含出现频率最高的 top 值与唯一值数量。
+ */
 export interface StringTab {
+  /** 汇总类型 */
   kind: 'string'
+  /** 变量名 */
   varName: string
+  /** 有效观测数 */
   nValid: number
+  /** 缺失观测数 */
   nMissing: number
+  /** 唯一值数量 */
   nUnique: number
+  /** 出现频率最高的字符串值 */
   topValues: { value: string, freq: number, pct: number }[]
 }
 
+/** 单变量汇总结果 */
 export type TabulateResult = DiscreteTab | ContinuousTab | StringTab
 
+/** 离散型变量的最大类别数 */
 const MAX_DISCRETE_CATEGORIES = 20
-const MAX_INT_BAR_VALUES = 200 // integer-valued vars with up to this many uniques get per-value bars
+/** 整数型变量若唯一值数不超过此阈值，则显示每值柱状图 */
+const MAX_INT_BAR_VALUES = 200
+/** 连续变量直方图分箱数 */
 const HISTOGRAM_BINS = 30
 
+/**
+ * Stata 117/118 文件头部格式规格。
+ * 控制变量名、变量标签和值标签名称等字段的长度与编码方式。
+ */
 interface FormatSpec {
+  /** Stata release 标记 */
   release: 117 | 118
+  /** 变量名字段长度 */
   varnameLen: number
+  /** 变量标签字段长度 */
   varlabelLen: number
+  /** 显示格式字段长度 */
   formatLen: number
+  /** 值标签名称字段长度 */
   valueLabelNameLen: number
+  /** 观测数字段字节数 */
   nobsBytes: number
+  /** 字符串编码 */
   encoding: 'latin1' | 'utf8'
 }
 
+/** Stata 117 文件规格 */
 const FMT_117: FormatSpec = {
   release: 117,
   varnameLen: 33,
@@ -118,6 +193,7 @@ const FMT_117: FormatSpec = {
   encoding: 'latin1',
 }
 
+/** Stata 118 文件规格 */
 const FMT_118: FormatSpec = {
   release: 118,
   varnameLen: 129,
@@ -128,14 +204,18 @@ const FMT_118: FormatSpec = {
   encoding: 'utf8',
 }
 
-// Type codes for formats 117/118 (uint16 LE):
-// 1..2045   -> strN (fixed-width string of N bytes)
-// 32768     -> strL (long string, 8-byte pointer in data)
-// 65526     -> double (8 bytes)
-// 65527     -> float  (4 bytes)
-// 65528     -> long   (4 bytes, int32)
-// 65529     -> int    (2 bytes, int16)
-// 65530     -> byte   (1 byte, int8)
+/**
+ * 解码 Stata 117/118 类型代码。
+ *
+ * 类型代码（uint16 LE）：
+ *   1..2045   -> strN（固定宽度字符串，N 字节）
+ *   32768     -> strL（长字符串，数据中为 8 字节指针）
+ *   65526     -> double（8 字节）
+ *   65527     -> float（4 字节）
+ *   65528     -> long（4 字节，int32）
+ *   65529     -> int（2 字节，int16）
+ *   65530     -> byte（1 字节，int8）
+ */
 function decodeTypeCode(code: number): { type: string, size: number } | null {
   if (code === 65526)
     return { type: 'double', size: 8 }
@@ -154,8 +234,12 @@ function decodeTypeCode(code: number): { type: string, size: number } | null {
   return null
 }
 
-// Stata-style missing-value sentinels (.= and .a..z all live above these thresholds).
-// Reference: Stata "[U] 12.2.1 Missing values".
+/**
+ * 判断数值是否为 Stata 缺失值。
+ *
+ * Stata 的 .= 和 .a..z 均高于各类型的普通取值阈值。
+ * 参考：Stata "[U] 12.2.1 Missing values"。
+ */
 function isMissingNumeric(v: number, t: string): boolean {
   if (v === null || v === undefined || Number.isNaN(v))
     return true
@@ -172,6 +256,9 @@ function isMissingNumeric(v: number, t: string): boolean {
   return false
 }
 
+/**
+ * 根据变量类型分配列存储
+ */
 function allocColumn(type: string, size: number, n: number): ColumnArray {
   if (type === 'byte')
     return new Int8Array(n)
@@ -183,10 +270,12 @@ function allocColumn(type: string, size: number, n: number): ColumnArray {
     return new Float32Array(n)
   if (type === 'double')
     return new Float64Array(n)
-    // string types (strN, strL): use plain string array
   return Array.from<string>({ length: n }).fill('')
 }
 
+/**
+ * 读取 NUL 终止字符串
+ */
 function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'latin1' | 'utf8'): string {
   let end = offset
   const limit = Math.min(offset + maxLen, buf.length)
@@ -194,23 +283,132 @@ function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'lat
   return buf.toString(encoding, offset, end)
 }
 
-// Find the byte offset of a tag's content (just after `<tag>`).
-// Returns -1 if not found. Tag must be ASCII.
+/**
+ * 初始化列存储、缺失值掩码与行内列偏移
+ */
+function createColumnarStorage(headers: string[], types: string[], typeSizes: number[], N: number) {
+  const columns: { [name: string]: ColumnArray } = {}
+  const missing: { [name: string]: Uint8Array } = {}
+  const colOffsets: number[] = []
+  let acc = 0
+  for (let j = 0; j < headers.length; j++) {
+    colOffsets.push(acc)
+    acc += typeSizes[j]
+    columns[headers[j]] = allocColumn(types[j], typeSizes[j], N)
+    missing[headers[j]] = new Uint8Array(N)
+  }
+  return { columns, missing, colOffsets }
+}
+
+/**
+ * 读取一行数据并写入列式存储
+ */
+function readColumnarRow(
+  buffer: Buffer,
+  rowOff: number,
+  i: number,
+  headers: string[],
+  types: string[],
+  typeSizes: number[],
+  columns: { [name: string]: ColumnArray },
+  missing: { [name: string]: Uint8Array },
+  colOffsets: number[],
+  encoding: 'latin1' | 'utf8',
+) {
+  const K = headers.length
+  for (let j = 0; j < K; j++) {
+    const off = rowOff + colOffsets[j]
+    const t = types[j]
+    const size = typeSizes[j]
+    const col = columns[headers[j]]
+    const miss = missing[headers[j]]
+    try {
+      if (t === 'byte') {
+        const v = buffer.readInt8(off)
+        if (isMissingNumeric(v, 'byte'))
+          miss[i] = 1
+        else
+          col[i] = v
+      }
+      else if (t === 'int') {
+        const v = buffer.readInt16LE(off)
+        if (isMissingNumeric(v, 'int'))
+          miss[i] = 1
+        else
+          col[i] = v
+      }
+      else if (t === 'long') {
+        const v = buffer.readInt32LE(off)
+        if (isMissingNumeric(v, 'long'))
+          miss[i] = 1
+        else
+          col[i] = v
+      }
+      else if (t === 'float') {
+        const v = buffer.readFloatLE(off)
+        if (isMissingNumeric(v, 'float')) {
+          miss[i] = 1
+          col[i] = Number.NaN
+        }
+        else {
+          col[i] = v
+        }
+      }
+      else if (t === 'double') {
+        const v = buffer.readDoubleLE(off)
+        if (isMissingNumeric(v, 'double')) {
+          miss[i] = 1
+          col[i] = Number.NaN
+        }
+        else {
+          col[i] = v
+        }
+      }
+      else if (t === 'strL') {
+        miss[i] = 1
+        col[i] = ''
+      }
+      else if (t.startsWith('str')) {
+        const s = readCString(buffer, off, size, encoding)
+        if (s.length === 0)
+          miss[i] = 1
+        col[i] = s
+      }
+    }
+    catch {
+      miss[i] = 1
+    }
+  }
+}
+
+/**
+ * 查找标签内容起始偏移
+ */
 function findTagOpen(buf: Buffer, tag: string, fromOffset: number = 0): number {
   const needle = Buffer.from(`<${tag}>`, 'latin1')
   const idx = buf.indexOf(needle, fromOffset)
   return idx === -1 ? -1 : idx + needle.length
 }
 
+/**
+ * 查找结束标签偏移
+ */
 function findTagClose(buf: Buffer, tag: string, fromOffset: number = 0): number {
   const needle = Buffer.from(`</${tag}>`, 'latin1')
   return buf.indexOf(needle, fromOffset)
 }
 
+/**
+ * Stata 117/118 数据解析器。
+ * 提供预览解析、列式解析和单变量汇总功能。
+ */
 export class DtaParser {
+  /**
+   * 解析少量行式预览数据
+   */
   static parse(buffer: Buffer): DtaData {
-    // --- 1. Detect format release ---
-    // Header is ASCII at the very start.
+    // --- 1. 检测格式版本 ---
+    // 文件开头是 ASCII 头部。
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
       const first10 = buffer.toString('hex', 0, 10)
@@ -231,13 +429,13 @@ export class DtaParser {
     if (!isLE)
       throw new Error('MSF (big-endian) Stata files are not supported yet.')
 
-    // --- 2. Parse <K> (number of variables) ---
+    // --- 2. 解析 <K>（变量数量） ---
     const kOpen = findTagOpen(buffer, 'K')
     if (kOpen === -1)
       throw new Error('Missing <K> tag.')
     const K = buffer.readUInt16LE(kOpen)
 
-    // --- 3. Parse <N> (number of observations): 4 bytes (117) or 8 bytes (118) ---
+    // --- 3. 解析 <N>（观测数）：117 为 4 字节，118 为 8 字节 ---
     const nOpen = findTagOpen(buffer, 'N')
     if (nOpen === -1)
       throw new Error('Missing <N> tag.')
@@ -246,13 +444,13 @@ export class DtaParser {
       N = buffer.readUInt32LE(nOpen)
     }
     else {
-      // Read as bigint then narrow; .dta nobs in practice fits in JS number.
+      // Stata 的观测数通常可安全转换为 JS number。
       const big = buffer.readBigUInt64LE(nOpen)
       N = Number(big)
     }
 
-    // --- 4. Parse <map>: 14 uint64 LE offsets ---
-    // Map order (per Stata docs):
+    // --- 4. 解析 <map>：14 个 uint64 LE 偏移量 ---
+    // map 中的顺序（按 Stata 文档）：
     //  0: <stata_dta>
     //  1: <map>
     //  2: <variable_types>
@@ -265,8 +463,8 @@ export class DtaParser {
     //  9: <data>
     // 10: <strls>
     // 11: <value_labels>
-    // 12: </stata_data>  (end marker)
-    // 13: end-of-file
+    // 12: </stata_data>  结束标记
+    // 13: 文件结束
     const mapOpen = findTagOpen(buffer, 'map')
     if (mapOpen === -1)
       throw new Error('Missing <map> tag.')
@@ -276,8 +474,8 @@ export class DtaParser {
       mapOffsets.push(Number(big))
     }
 
-    // Helper: read content between <tag>...</tag> using map-anchored offset.
-    // The map points to '<' of the opening tag.
+    // 辅助：根据 map 提供的偏移读取 <tag>...</tag> 之间的内容。
+    // map 指向开标签的 '<'。
     const sliceTagContent = (mapIdx: number, tag: string): { start: number, end: number } => {
       const tagStart = mapOffsets[mapIdx]
       const openLen = tag.length + 2 // <tag>
@@ -296,7 +494,7 @@ export class DtaParser {
       const code = buffer.readUInt16LE(vt.start + j * 2)
       const dec = decodeTypeCode(code)
       if (!dec) {
-        // Unknown code: skip variable but keep alignment by treating as byte.
+        // 未知错误：跳过变量但保持对齐方式，将其视为字节处理
         types.push('byte')
         typeSizes.push(1)
       }
@@ -306,7 +504,7 @@ export class DtaParser {
       }
     }
 
-    // --- 6. <varnames>: K * varnameLen, NUL-terminated, encoding-aware ---
+    // --- 6. <varnames>：K * varnameLen，NUL 终止，支持编码 ---
     const vn = sliceTagContent(3, 'varnames')
     const headers: string[] = []
     for (let j = 0; j < K; j++) {
@@ -320,7 +518,7 @@ export class DtaParser {
       labels.push(readCString(buffer, vl.start + j * fmt.varlabelLen, fmt.varlabelLen, fmt.encoding))
     }
 
-    // --- 8. <value_labels>: zero or more <lbl> blocks ---
+    // --- 8. <value_labels>: 解析零个或多个 <lbl> 块 ---
     const valueLabels: { [varName: string]: { [value: number]: string } } = {}
     try {
       const vlbl = sliceTagContent(11, 'value_labels')
@@ -339,19 +537,19 @@ export class DtaParser {
         const blockEnd = cStart
         cursor = cStart + lblClose.length
 
-        // Block layout:
-        //  int32  len           (size of remaining table after this header+name+pad)
-        //  char   name[L]       (L = valueLabelNameLen, NUL-terminated)
-        //  char   pad[3]        (always)
-        //  int32  n             (number of entries)
-        //  int32  txtlen        (length of text pool)
-        //  int32  off[n]        (byte offset into text pool for each entry)
-        //  int32  val[n]        (value for each entry)
-        //  char   txt[txtlen]   (NUL-separated label strings)
+        // 块布局：
+        //  int32  len           （头部、名称和填充之后的表大小）
+        //  char   name[L]       （L = valueLabelNameLen，NUL 终止）
+        //  char   pad[3]        （填充）
+        //  int32  n             （条目数量）
+        //  int32  txtlen        （文本池长度）
+        //  int32  off[n]        （每个条目在文本池中的字节偏移）
+        //  int32  val[n]        （每个条目的值）
+        //  char   txt[txtlen]   （NUL 分隔的标签字符串）
         let off = blockStart
         if (off + 4 > blockEnd)
           continue
-        off += 4 // skip len
+        off += 4 // 跳过 len
 
         if (off + fmt.valueLabelNameLen + 3 > blockEnd)
           continue
@@ -394,10 +592,10 @@ export class DtaParser {
           valueLabels[lblName] = map
       }
     }
-    catch { /* value_labels missing or malformed; skip */ }
+    catch { /* 值标签缺失或格式异常时跳过 */ }
 
-    // Stata stores per-variable association via <value_label_names>: K * varnameLen, each pointing
-    // to a label name in valueLabels. Map each variable to its label table.
+    // Stata 通过 <value_label_names> 为每个变量关联一个标签名（K 个 varnameLen），
+    // 该标签名对应 valueLabels 中的标签表。将每个变量映射到它的标签表。
     const variableValueLabels: { [varName: string]: { [v: number]: string } } = {}
     try {
       const vln = sliceTagContent(6, 'value_label_names')
@@ -408,13 +606,14 @@ export class DtaParser {
         }
       }
     }
-    catch { /* skip */ }
+    catch { /* 跳过值标签绑定 */ }
 
-    // --- 9. <data>: read rows ---
+    // --- 9. <data>: 读取行数据 ---
     const dataTagStart = mapOffsets[9]
     const dataContentStart = dataTagStart + '<data>'.length
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
-    const limitRows = Math.min(N, 5000)
+    // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理。
+    const limitRows = Math.min(N, 1000)
     const rows: any[][] = []
 
     if (rowSize > 0 && N > 0) {
@@ -448,7 +647,7 @@ export class DtaParser {
                 val = Number.parseFloat(val.toFixed(6))
             }
             else if (type === 'strL') {
-              // strL is an 8-byte (v,o) pointer; we don't resolve the pool yet.
+              // strL 是一个 8 字节的 (v,o) 指针；此处暂不解析字符串池。
               val = ''
             }
             else if (type.startsWith('str')) {
@@ -473,9 +672,9 @@ export class DtaParser {
   }
 
   /**
-   * Compute a tabulation/summary for a single variable using the in-memory
-   * columnar representation. Format-agnostic (works for 117/118 and legacy 113-115).
-   * If `indices` is provided, the tabulation operates only on those rows.
+   * 使用列式数据为单个变量计算汇总结果。
+   * 格式无关（适用于 117/118 和旧版 113-115）。
+   * 如果提供 indices，则只汇总指定行。
    */
   static tabulate(columnar: DtaColumnar, varName: string, indices?: Uint32Array): TabulateResult {
     const colIdx = columnar.meta.headers.indexOf(varName)
@@ -501,35 +700,34 @@ export class DtaParser {
         continue
       }
       if (isNumeric) {
-        const v = (col as any)[i] as number
+        const v = col[i] as number
         if (Number.isNaN(v))
           nMissing++
         else
           numericValues.push(v)
       }
       else if (isString) {
-        const s = (col as string[])[i]
+        const s = col[i] as string
         if (!s || s.length === 0)
           nMissing++
         else
           stringValues.push(s)
       }
       else {
-        nMissing++ // strL or unknown
+        nMissing++ // strL 或未知类型
       }
     }
 
     const labelMap = columnar.meta.valueLabels[varName]
     const nValid = isNumeric ? numericValues.length : (isString ? stringValues.length : 0)
 
-    // --- Discrete decision ---
-    // 1) Has value labels → always discrete.
-    // 2) Compute unique count (bounded). If <= MAX_DISCRETE_CATEGORIES → discrete.
-    //    For floats, only discrete if all unique values are integers.
+    // --- 判断是否按离散型输出 ---
+    // 1) 若存在值标签，则始终视为离散型。
+    // 2) 计算唯一值数量（有上限）。若 <= MAX_DISCRETE_CATEGORIES 则视为离散型。
+    //    对于浮点数，只有当所有唯一值均为整数时才视为离散型。
     const uniqueCounter = new Map<any, number>()
     let exceededCap = false
-    // For numeric vars we want to be able to detect "21..200 integer uniques" so we
-    // can render per-value bars instead of a histogram. So the cap is wider for numerics.
+    // 数值型需要识别 21..200 个整数唯一值，以便显示每值柱状图。
     const cap = (isNumeric ? MAX_INT_BAR_VALUES : MAX_DISCRETE_CATEGORIES) + 1
 
     if (isNumeric) {
@@ -562,7 +760,7 @@ export class DtaParser {
     let allIntegers = true
     if (isFloatLike && !exceededCap) {
       for (const v of uniqueCounter.keys()) {
-        if (!Number.isInteger(v as number)) {
+        if (!Number.isInteger(v)) {
           allIntegers = false
           break
         }
@@ -574,9 +772,9 @@ export class DtaParser {
         || (!exceededCap && uniqueCounter.size > 0 && uniqueCounter.size <= MAX_DISCRETE_CATEGORIES
           && (!isFloatLike || allIntegers))
 
-    // --- Discrete output ---
+    // --- 离散型输出 ---
     if (treatDiscrete) {
-      // If cap exceeded but labels exist, we still need full counts: redo without cap.
+      // 若已超过上限但存在标签，则仍需完整计数：不使用上限重新计算。
       let fullCounter = uniqueCounter
       if (hasLabels && exceededCap) {
         fullCounter = new Map<any, number>()
@@ -598,7 +796,7 @@ export class DtaParser {
         const freq = fullCounter.get(k)!
         const pct = total > 0 ? (freq / total) * 100 : 0
         cum += pct
-        const lbl = labelMap && labelMap[k as number]
+        const lbl = labelMap && labelMap[k]
         return { value: k, label: lbl, freq, pct, cum }
       })
 
@@ -611,7 +809,7 @@ export class DtaParser {
       }
     }
 
-    // --- Continuous output ---
+    // --- 连续型输出 ---
     if (isNumeric) {
       const arr = numericValues
       const sorted = [...arr].sort((a, b) => a - b)
@@ -638,17 +836,17 @@ export class DtaParser {
         return sorted[lo] * (hi - idx) + sorted[hi] * (idx - lo)
       }
 
-      // Decide chart type:
-      //   - If unique count is known (cap not exceeded), all values are integers,
-      //     and uniques are between MAX_DISCRETE_CATEGORIES+1 and MAX_INT_BAR_VALUES,
-      //     show per-value bars (this var is "discrete with many categories").
-      //   - Otherwise binned histogram.
+      // 决定图表类型：
+      //   - 若唯一值数量已知（未超过上限）、所有值为整数，
+      //     且唯一值数量在 MAX_DISCRETE_CATEGORIES+1 到 MAX_INT_BAR_VALUES 之间，
+      //     则显示每值柱状图（“类别较多的离散型”）。
+      //   - 否则显示分箱直方图。
       const knownUniques = !exceededCap
       let allInts = false
       if (knownUniques) {
         allInts = true
         for (const v of uniqueCounter.keys()) {
-          if (!Number.isInteger(v as number)) {
+          if (!Number.isInteger(v)) {
             allInts = false
             break
           }
@@ -661,7 +859,7 @@ export class DtaParser {
       let chart: ContinuousTab['chart']
       if (useBars) {
         const bars = [...uniqueCounter.entries()]
-          .map(([value, count]) => ({ value: value as number, count }))
+          .map(([value, count]) => ({ value, count }))
           .sort((a, b) => a.value - b.value)
         chart = { type: 'bars', bars }
       }
@@ -708,7 +906,7 @@ export class DtaParser {
       }
     }
 
-    // --- String output (many unique strings) ---
+    // --- 字符串输出（高度唯一） ---
     const counter = new Map<string, number>()
     for (let i = 0; i < stringValues.length; i++) {
       counter.set(stringValues[i], (counter.get(stringValues[i]) || 0) + 1)
@@ -729,11 +927,10 @@ export class DtaParser {
   }
 
   /**
-   * Async variant that yields to the event loop every `yieldEvery` rows.
-   * Use this so a UI can paint progress updates while a large file is parsed.
+   * 异步解析完整文件为列式数据
    */
   static async parseColumnarAsync(buffer: Buffer, opts: ParseColumnarAsyncOptions = {}): Promise<DtaColumnar> {
-    // Dispatch to legacy parser for pre-13 binary formats.
+    // 对于 Stata 13 之前的二进制格式，派发给旧版解析器处理。
     if (isLegacyDtaFormat(buffer)) {
       return parseColumnarLegacyAsync(buffer, opts)
     }
@@ -742,20 +939,7 @@ export class DtaParser {
     const labels: string[] = readVarLabels(buffer, fmt, K)
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
 
-    const columns: { [name: string]: ColumnArray } = {}
-    const missing: { [name: string]: Uint8Array } = {}
-    const colOffsets: number[] = []
-    {
-      let acc = 0
-      for (let j = 0; j < K; j++) {
-        colOffsets.push(acc)
-        acc += typeSizes[j]
-      }
-    }
-    for (let j = 0; j < K; j++) {
-      columns[headers[j]] = allocColumn(types[j], typeSizes[j], N)
-      missing[headers[j]] = new Uint8Array(N)
-    }
+    const { columns, missing, colOffsets } = createColumnarStorage(headers, types, typeSizes, N)
 
     const progressStep = opts.progressStep ?? 10000
     const yieldEvery = opts.yieldEvery ?? 20000
@@ -766,66 +950,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      for (let j = 0; j < K; j++) {
-        const off = rowOff + colOffsets[j]
-        const t = types[j]
-        const size = typeSizes[j]
-        const col = columns[headers[j]]
-        const miss = missing[headers[j]]
-        try {
-          if (t === 'byte') {
-            const v = buffer.readInt8(off)
-            if (isMissingNumeric(v, 'byte'))
-              miss[i] = 1
-            else (col as Int8Array)[i] = v
-          }
-          else if (t === 'int') {
-            const v = buffer.readInt16LE(off)
-            if (isMissingNumeric(v, 'int'))
-              miss[i] = 1
-            else (col as Int16Array)[i] = v
-          }
-          else if (t === 'long') {
-            const v = buffer.readInt32LE(off)
-            if (isMissingNumeric(v, 'long'))
-              miss[i] = 1
-            else (col as Int32Array)[i] = v
-          }
-          else if (t === 'float') {
-            const v = buffer.readFloatLE(off)
-            if (isMissingNumeric(v, 'float')) {
-              miss[i] = 1;
-              (col as Float32Array)[i] = Number.NaN
-            }
-            else {
-              (col as Float32Array)[i] = v
-            }
-          }
-          else if (t === 'double') {
-            const v = buffer.readDoubleLE(off)
-            if (isMissingNumeric(v, 'double')) {
-              miss[i] = 1;
-              (col as Float64Array)[i] = Number.NaN
-            }
-            else {
-              (col as Float64Array)[i] = v
-            }
-          }
-          else if (t === 'strL') {
-            miss[i] = 1;
-            (col as string[])[i] = ''
-          }
-          else if (t.startsWith('str')) {
-            const s = readCString(buffer, off, size, fmt.encoding)
-            if (s.length === 0)
-              miss[i] = 1;
-            (col as string[])[i] = s
-          }
-        }
-        catch {
-          miss[i] = 1
-        }
-      }
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -853,9 +978,7 @@ export class DtaParser {
   }
 
   /**
-   * Single-pass columnar parse over ALL N observations.
-   * Returns metadata + one TypedArray (or string[]) per variable + a missingness mask.
-   * This is the foundation for filtering, sorting, paging and tabulation in O(1) per row.
+   * 同步解析完整文件为列式数据
    */
   static parseColumnar(buffer: Buffer, opts: ParseColumnarOptions = {}): DtaColumnar {
     if (isLegacyDtaFormat(buffer)) {
@@ -867,93 +990,18 @@ export class DtaParser {
 
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
 
-    // Allocate one column container per variable.
-    const columns: { [name: string]: ColumnArray } = {}
-    const missing: { [name: string]: Uint8Array } = {}
-    const colOffsets: number[] = []
-    {
-      let acc = 0
-      for (let j = 0; j < K; j++) {
-        colOffsets.push(acc)
-        acc += typeSizes[j]
-      }
-    }
-    for (let j = 0; j < K; j++) {
-      columns[headers[j]] = allocColumn(types[j], typeSizes[j], N)
-      missing[headers[j]] = new Uint8Array(N)
-    }
+    const { columns, missing, colOffsets } = createColumnarStorage(headers, types, typeSizes, N)
 
     const progressStep = opts.progressStep ?? 10000
     const onProgress = opts.onProgress
 
-    // Single linear pass.
+    // 执行单次线性扫描。
     for (let i = 0; i < N; i++) {
       const rowOff = dataStart + i * rowSize
       if (rowOff + rowSize > buffer.length)
         break
 
-      for (let j = 0; j < K; j++) {
-        const off = rowOff + colOffsets[j]
-        const t = types[j]
-        const size = typeSizes[j]
-        const col = columns[headers[j]]
-        const miss = missing[headers[j]]
-
-        try {
-          if (t === 'byte') {
-            const v = buffer.readInt8(off)
-            if (isMissingNumeric(v, 'byte'))
-              miss[i] = 1
-            else (col as Int8Array)[i] = v
-          }
-          else if (t === 'int') {
-            const v = buffer.readInt16LE(off)
-            if (isMissingNumeric(v, 'int'))
-              miss[i] = 1
-            else (col as Int16Array)[i] = v
-          }
-          else if (t === 'long') {
-            const v = buffer.readInt32LE(off)
-            if (isMissingNumeric(v, 'long'))
-              miss[i] = 1
-            else (col as Int32Array)[i] = v
-          }
-          else if (t === 'float') {
-            const v = buffer.readFloatLE(off)
-            if (isMissingNumeric(v, 'float')) {
-              miss[i] = 1;
-              (col as Float32Array)[i] = Number.NaN
-            }
-            else {
-              (col as Float32Array)[i] = v
-            }
-          }
-          else if (t === 'double') {
-            const v = buffer.readDoubleLE(off)
-            if (isMissingNumeric(v, 'double')) {
-              miss[i] = 1;
-              (col as Float64Array)[i] = Number.NaN
-            }
-            else {
-              (col as Float64Array)[i] = v
-            }
-          }
-          else if (t === 'strL') {
-            // strL pointers are not yet resolved against <strls>; treat as missing for now.
-            miss[i] = 1;
-            (col as string[])[i] = ''
-          }
-          else if (t.startsWith('str')) {
-            const s = readCString(buffer, off, size, fmt.encoding)
-            if (s.length === 0)
-              miss[i] = 1;
-            (col as string[])[i] = s
-          }
-        }
-        catch {
-          miss[i] = 1
-        }
-      }
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -978,21 +1026,33 @@ export class DtaParser {
   }
 }
 
-// ---- Internal helpers shared by parse() and tabulate() ----
+// ---------- 内部辅助函数 ----------
 
+/** Stata 117/118 文件布局 */
 interface Layout {
+  /** 文件格式规格 */
   fmt: FormatSpec
+  /** 变量数量 */
   K: number
+  /** 观测数 */
   N: number
+  /** 变量名列表 */
   headers: string[]
+  /** 内部变量类型 */
   types: string[]
+  /** 每个变量在单行数据中的字节大小 */
   typeSizes: number[]
+  /** 数据区内容起始偏移 */
   dataStart: number
+  /** 变量到值标签表的映射 */
   valueLabels: { [varName: string]: { [v: number]: string } }
 }
 
+/**
+ * 读取变量标签列表
+ */
 function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number): string[] {
-  // Re-find the tag offset using the map (cheap; called once per parseColumnar).
+  // 使用 map 重新查找标签偏移（开销小；parseColumnar 仅调用一次）。
   const mapOpen = findTagOpen(buffer, 'map')
   if (mapOpen === -1)
     return Array.from<string>({ length: K }).fill('')
@@ -1008,11 +1068,14 @@ function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number): string[] {
   return labels
 }
 
+/**
+ * 解析 Stata 117/118 文件布局
+ */
 function computeLayout(buffer: Buffer): Layout {
   const head = buffer.toString('latin1', 0, 200)
   if (!head.includes('<stata_dta>')) {
-    // Old binary formats (pre-Stata 13) start with a single ds_format byte.
-    // Recognized values: 105, 108, 110, 111, 112, 113, 114, 115.
+    // 旧版二进制格式（Stata 13 之前）以单字节 ds_format 起始。
+    // 识别值包括：105、108、110、111、112、113、114、115。
     const firstByte = buffer.length > 0 ? buffer[0] : -1
     const legacyFormats: { [k: number]: string } = {
       105: 'Stata 5 (format 105)',
@@ -1076,7 +1139,7 @@ function computeLayout(buffer: Buffer): Layout {
     headers.push(readCString(buffer, vn.start + j * fmt.varnameLen, fmt.varnameLen, fmt.encoding))
   }
 
-  // Value labels (rebuild to map var -> labels, same logic as parse()).
+  // 值标签：重建变量到标签映射，逻辑与 parse() 一致
   const valueLabels: { [name: string]: { [v: number]: string } } = {}
   const rawLabels: { [name: string]: { [v: number]: string } } = {}
   try {
@@ -1143,7 +1206,7 @@ function computeLayout(buffer: Buffer): Layout {
         valueLabels[headers[j]] = rawLabels[name]
     }
   }
-  catch { /* skip */ }
+  catch { /* 跳过值标签 */ }
 
   const dataStart = mapOffsets[9] + '<data>'.length
 
