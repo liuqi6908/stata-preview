@@ -454,10 +454,12 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
             <!-- 工具栏 -->
             <div id="toolbar">
               <div id="toolbar-left">
-                <input id="search-input" type="text" placeholder="${l10n.t('Filter: e.g., edad > 30 & treatment == 1')}">
+                <div id="search-field">
+                  <input id="search-input" type="text" placeholder="${l10n.t('Filter: e.g., edad > 30 & treatment == 1')}">
+                  <span id="filter-error"></span>
+                </div>
                 <button id="search-apply" title="${l10n.t('Apply filter (or press Enter)')}">${l10n.t('Apply')}</button>
                 <button id="search-clear" title="${l10n.t('Clear filter')}">${l10n.t('Clear')}</button>
-                <span id="filter-error" class="filter-error"></span>
               </div>
               <div id="toolbar-right">
                 <button id="toggle-sidebar">${l10n.t('Toggle Sidebar')}</button>

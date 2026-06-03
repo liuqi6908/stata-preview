@@ -871,7 +871,7 @@
             <span>${bootstrap.l10n.combineWithGeneralFilter}</span>
             <span class="explorer-inherit-note">${generalNote}</span>
           </label>
-          <span id="explorer-filter-error" class="filter-error"></span>
+          <span id="explorer-filter-error"></span>
         </div>
       </div>
     `

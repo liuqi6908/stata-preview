@@ -520,9 +520,35 @@ table {
     flex: 1;
     max-width: 400px;
 
-    & #search-input {
+    & #search-field {
       flex: 1;
       min-width: 200px;
+      position: relative;
+
+      & #search-input {
+        width: 100%;
+      }
+
+      & #filter-error {
+        display: none;
+        position: absolute;
+        top: calc(100% - 1px);
+        left: 0;
+        width: 100%;
+        padding: 4px 6px;
+        z-index: 20;
+        font-size: 11px;
+        line-height: 16px;
+        word-wrap: break-word;
+        overflow-wrap: anywhere;
+        color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+        border: 1px solid var(--vscode-inputValidation-errorBorder);
+        background: var(--vscode-inputValidation-errorBackground);
+
+        &:not(:empty) {
+          display: block;
+        }
+      }
     }
   }
 
@@ -821,10 +847,18 @@ table {
             align-items: center;
             gap: 6px;
             cursor: pointer;
+            flex-shrink: 0;
           }
 
           & .explorer-inherit-note {
             font-style: italic;
+          }
+
+          & #explorer-filter-error {
+            font-size: 11px;
+            color: var(--vscode-errorForeground);
+            white-space: nowrap;
+            overflow: hidden;
           }
         }
 
@@ -871,10 +905,4 @@ table {
       color: var(--vscode-errorForeground);
     }
   }
-}
-
-.filter-error {
-  color: var(--vscode-errorForeground);
-  font-size: 11px;
-  white-space: nowrap;
 }
