@@ -126,6 +126,7 @@
   const toggleSidebar = document.getElementById('toggle-sidebar')
   const refreshData = document.getElementById('refresh-data')
   const fileInfo = document.getElementById('file-info')
+  const usageGuide = document.getElementById('usage-guide')
 
   // 网格器
   const gridContainer = document.getElementById('grid-container')
@@ -159,6 +160,10 @@
   const fileInfoModal = document.getElementById('file-info-modal')
   const closeFileInfo = document.getElementById('close-file-info')
   const fileInfoBody = document.getElementById('file-info-body')
+
+  // 使用说明弹窗
+  const usageGuideModal = document.getElementById('usage-guide-modal')
+  const closeUsageGuide = document.getElementById('close-usage-guide')
 
   // 变量汇总弹窗
   const explorerModal = document.getElementById('explorer-modal')
@@ -746,6 +751,17 @@
   fileInfoModal.addEventListener('click', (e) => {
     if (e.target === fileInfoModal)
       fileInfoModal.classList.remove('show')
+  })
+
+  // ---------- 使用说明弹窗 ----------
+
+  usageGuide.addEventListener('click', () => {
+    usageGuideModal.classList.add('show')
+  })
+  closeUsageGuide.addEventListener('click', () => usageGuideModal.classList.remove('show'))
+  usageGuideModal.addEventListener('click', (e) => {
+    if (e.target === usageGuideModal)
+      usageGuideModal.classList.remove('show')
   })
 
   /**

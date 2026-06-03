@@ -463,13 +463,21 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               </div>
               <div id="toolbar-right">
                 <button id="toggle-sidebar">${l10n.t('Toggle Sidebar')}</button>
+                <button id="usage-guide" class="icon" title="${l10n.t('Usage guide')}">
+                  <svg width="18" height="18" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                      <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9 4v.01"/>
+                      <path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/>
+                    </g>
+                  </svg>
+                </button>
                 <button id="refresh-data" class="icon" title="${l10n.t('Refresh data')}">
-                  <svg width="16" height="16" viewBox="0 0 24 24">
+                  <svg width="18" height="18" viewBox="0 0 24 24">
                     <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4m-4 4a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>
                   </svg>
                 </button>
                 <button id="file-info" class="icon" title="${l10n.t('File information')}">
-                  <svg width="16" height="16" viewBox="0 0 24 24">
+                  <svg width="18" height="18" viewBox="0 0 24 24">
                     <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
                       <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9-3h.01"/>
                       <path d="M11 12h1v4h1"/>
@@ -575,6 +583,60 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               </button>
             </div>
             <div id="file-info-body" class="modal-body"></div>
+          </div>
+        </div>
+
+        <!-- 使用说明弹窗 -->
+        <div id="usage-guide-modal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2>${l10n.t('Usage guide')}</h2>
+              <button id="close-usage-guide" class="icon">
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div id="usage-guide-body" class="modal-body">
+              <section class="usage-section">
+                <h3>${l10n.t('Filtering')}</h3>
+                <ul>
+                  <li>${l10n.t('Enter an expression in the filter box, then apply it to show matching rows.')}</li>
+                  <li>${l10n.t('Use variable names directly, including Unicode names such as Chinese column names.')}</li>
+                  <li>${l10n.t('Supported comparisons: ==, !=, ~=, <, <=, >, >=.')}</li>
+                  <li>${l10n.t('Combine conditions with &, |, !, or the words and, or, not.')}</li>
+                  <li>${l10n.t('Wrap string values in single or double quotes.')}</li>
+                </ul>
+                <div class="usage-examples">
+                  <code>edad &gt; 30 &amp; treatment == 1</code>
+                </div>
+              </section>
+              <section class="usage-section">
+                <h3>${l10n.t('Table')}</h3>
+                <ul>
+                  <li>${l10n.t('Click a column header to sort by that column.')}</li>
+                  <li>${l10n.t('Hold Shift while clicking column headers to sort by multiple columns.')}</li>
+                  <li>${l10n.t('Drag the handle on the right edge of a header to resize the column.')}</li>
+                  <li>${l10n.t('Use the pager to move through rows and change the page size.')}</li>
+                </ul>
+              </section>
+              <section class="usage-section">
+                <h3>${l10n.t('Variables panel')}</h3>
+                <ul>
+                  <li>${l10n.t('Use checkboxes to show or hide columns without changing the data file.')}</li>
+                  <li>${l10n.t('Search variable names to quickly find columns in wide datasets.')}</li>
+                  <li>${l10n.t('Open variable statistics to inspect missing values, unique values, distributions, and numeric summaries.')}</li>
+                  <li>${l10n.t('Variable statistics can inherit the table filter or use a temporary filter for that calculation.')}</li>
+                </ul>
+              </section>
+              <section class="usage-section">
+                <h3>${l10n.t('Data and file')}</h3>
+                <ul>
+                  <li>${l10n.t('Refresh data to re-read the current .dta file from disk.')}</li>
+                  <li>${l10n.t('Open file information to view path, size, update time, Stata release, row count, and variable count.')}</li>
+                </ul>
+              </section>
+            </div>
           </div>
         </div>
 
