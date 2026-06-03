@@ -91,6 +91,27 @@ interface Token {
 }
 
 /**
+ * 读取当前位置的完整 Unicode 字符。
+ */
+function codePointAt(src: string, pos: number): string {
+  return String.fromCodePoint(src.codePointAt(pos)!)
+}
+
+/**
+ * 标识符起始字符：下划线或任意 Unicode 字母。
+ */
+function isIdentifierStart(c: string): boolean {
+  return c === '_' || /\p{L}/u.test(c)
+}
+
+/**
+ * 标识符后续字符：下划线、Unicode 字母、数字或组合标记。
+ */
+function isIdentifierPart(c: string): boolean {
+  return c === '_' || /[\p{L}\p{N}\p{M}]/u.test(c)
+}
+
+/**
  * 将表达式字符串拆分为词元序列
  */
 function tokenize(src: string): Token[] {
@@ -98,10 +119,10 @@ function tokenize(src: string): Token[] {
   let i = 0
   const L = src.length
   while (i < L) {
-    const c = src[i]
+    const c = codePointAt(src, i)
     // 空白字符
     if (/\s/.test(c)) {
-      i++
+      i += c.length
       continue
     }
     const start = i
@@ -205,19 +226,26 @@ function tokenize(src: string): Token[] {
       continue
     }
 
-    // 标识符（变量名）。Stata 合法：字母、数字、下划线，不能以数字开头。
-    if (/[A-Z_]/i.test(c)) {
+    // 标识符（变量名）：字母、数字、下划线，不能以数字开头；支持 Unicode 变量名。
+    if (isIdentifierStart(c)) {
       let s = ''
-      while (i < src.length && /\w/.test(src[i])) s += src[i++]
-      if (s === 'and') {
+      while (i < src.length) {
+        const ch = codePointAt(src, i)
+        if (!isIdentifierPart(ch))
+          break
+        s += ch
+        i += ch.length
+      }
+      const keyword = s.toLowerCase()
+      if (keyword === 'and') {
         tokens.push({ type: 'AND', value: 'and', pos: start })
         continue
       }
-      if (s === 'or') {
+      if (keyword === 'or') {
         tokens.push({ type: 'OR', value: 'or', pos: start })
         continue
       }
-      if (s === 'not') {
+      if (keyword === 'not') {
         tokens.push({ type: 'NOT', value: 'not', pos: start })
         continue
       }
