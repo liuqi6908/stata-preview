@@ -283,6 +283,88 @@ function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'lat
   return buf.toString(encoding, offset, end)
 }
 
+/** strL 长字符串查找表：数据行中的 8 字节引用 -> 实际字符串 */
+type StrLMap = Map<string, string>
+
+/**
+ * 根据 GSO 记录中的 (v, o) 生成数据行里使用的 8 字节 strL 引用键。
+ */
+function strLKey(fmt: FormatSpec, v: number, o: bigint | number): string {
+  const ob = typeof o === 'bigint' ? o : BigInt(o)
+  if (fmt.release === 117)
+    return (BigInt(v) + (ob << 32n)).toString()
+  return (BigInt(v & 0xFFFF) + ((ob & ((1n << 48n) - 1n)) << 16n)).toString()
+}
+
+/**
+ * 读取数据行里的 strL 引用。
+ */
+function readStrLRef(buffer: Buffer, offset: number, strls: StrLMap): string {
+  if (offset + 8 > buffer.length)
+    return ''
+  const key = buffer.readBigUInt64LE(offset).toString()
+  return strls.get(key) || ''
+}
+
+/**
+ * 解析 <strls> 段中的 GSO 记录。
+ *
+ * Stata 117/118 的数据区只保存 strL 引用，真正内容存放在 <strls> 段。
+ * type=130 是文本，type=129 是二进制；二进制用 latin1 做字节保真映射，
+ * 以便统计时仍能按完整字节序列计数。
+ */
+function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number): StrLMap {
+  const out: StrLMap = new Map()
+  out.set('0', '')
+  if (tagStart < 0 || tagStart >= buffer.length)
+    return out
+
+  const start = tagStart + '<strls>'.length
+  const end = findTagClose(buffer, 'strls', start)
+  if (end === -1)
+    return out
+
+  let off = start
+  while (off + 3 <= end) {
+    if (buffer.toString('latin1', off, off + 3) !== 'GSO')
+      break
+    off += 3
+
+    const minHeader = fmt.release === 117 ? 13 : 17
+    if (off + minHeader > end)
+      break
+
+    const v = buffer.readUInt32LE(off)
+    off += 4
+    const o = fmt.release === 117 ? BigInt(buffer.readUInt32LE(off)) : buffer.readBigUInt64LE(off)
+    off += fmt.release === 117 ? 4 : 8
+    const type = buffer.readUInt8(off)
+    off += 1
+    const len = buffer.readUInt32LE(off)
+    off += 4
+
+    if (off + len > end)
+      break
+
+    const raw = buffer.subarray(off, off + len)
+    off += len
+
+    let value: string
+    if (type === 130) {
+      const text = raw.length > 0 && raw[raw.length - 1] === 0
+        ? raw.subarray(0, raw.length - 1)
+        : raw
+      value = text.toString(fmt.encoding)
+    }
+    else {
+      value = raw.toString('latin1')
+    }
+    out.set(strLKey(fmt, v, o), value)
+  }
+
+  return out
+}
+
 /**
  * 初始化列存储、缺失值掩码与行内列偏移
  */
@@ -314,6 +396,7 @@ function readColumnarRow(
   missing: { [name: string]: Uint8Array },
   colOffsets: number[],
   encoding: 'latin1' | 'utf8',
+  strls: StrLMap,
 ) {
   const K = headers.length
   for (let j = 0; j < K; j++) {
@@ -365,8 +448,10 @@ function readColumnarRow(
         }
       }
       else if (t === 'strL') {
-        miss[i] = 1
-        col[i] = ''
+        const s = readStrLRef(buffer, off, strls)
+        if (s.length === 0)
+          miss[i] = 1
+        col[i] = s
       }
       else if (t.startsWith('str')) {
         const s = readCString(buffer, off, size, encoding)
@@ -608,6 +693,8 @@ export class DtaParser {
     }
     catch { /* 跳过值标签绑定 */ }
 
+    const strls = readStrLs(buffer, fmt, mapOffsets[10])
+
     // --- 9. <data>: 读取行数据 ---
     const dataTagStart = mapOffsets[9]
     const dataContentStart = dataTagStart + '<data>'.length
@@ -647,8 +734,7 @@ export class DtaParser {
                 val = Number.parseFloat(val.toFixed(6))
             }
             else if (type === 'strL') {
-              // strL 是一个 8 字节的 (v,o) 指针；此处暂不解析字符串池。
-              val = ''
+              val = readStrLRef(buffer, offset, strls)
             }
             else if (type.startsWith('str')) {
               val = readCString(buffer, offset, size, fmt.encoding)
@@ -686,7 +772,7 @@ export class DtaParser {
     const N = columnar.meta.nobs
 
     const isNumeric = colType === 'byte' || colType === 'int' || colType === 'long' || colType === 'float' || colType === 'double'
-    const isString = colType.startsWith('str') && colType !== 'strL'
+    const isString = colType.startsWith('str')
 
     const numericValues: number[] = isNumeric ? [] : (null as any)
     const stringValues: string[] = isString ? [] : (null as any)
@@ -720,6 +806,16 @@ export class DtaParser {
 
     const labelMap = columnar.meta.valueLabels[varName]
     const nValid = isNumeric ? numericValues.length : (isString ? stringValues.length : 0)
+    if (!isNumeric && !isString) {
+      return {
+        kind: 'string',
+        varName,
+        nValid: 0,
+        nMissing,
+        nUnique: 0,
+        topValues: [],
+      }
+    }
 
     // --- 判断是否按离散型输出 ---
     // 1) 若存在值标签，则始终视为离散型。
@@ -935,7 +1031,7 @@ export class DtaParser {
       return parseColumnarLegacyAsync(buffer, opts)
     }
     const layout = computeLayout(buffer)
-    const { fmt, K, N, headers, types, typeSizes, dataStart, valueLabels } = layout
+    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels } = layout
     const labels: string[] = readVarLabels(buffer, fmt, K)
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
 
@@ -950,7 +1046,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -985,7 +1081,7 @@ export class DtaParser {
       return parseColumnarLegacy(buffer)
     }
     const layout = computeLayout(buffer)
-    const { fmt, K, N, headers, types, typeSizes, dataStart, valueLabels } = layout
+    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels } = layout
     const labels: string[] = readVarLabels(buffer, fmt, K)
 
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
@@ -1001,7 +1097,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -1044,6 +1140,8 @@ interface Layout {
   typeSizes: number[]
   /** 数据区内容起始偏移 */
   dataStart: number
+  /** strL 长字符串查找表 */
+  strls: StrLMap
   /** 变量到值标签表的映射 */
   valueLabels: { [varName: string]: { [v: number]: string } }
 }
@@ -1209,6 +1307,7 @@ function computeLayout(buffer: Buffer): Layout {
   catch { /* 跳过值标签 */ }
 
   const dataStart = mapOffsets[9] + '<data>'.length
+  const strls = readStrLs(buffer, fmt, mapOffsets[10])
 
-  return { fmt, K, N, headers, types, typeSizes, dataStart, valueLabels }
+  return { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels }
 }
