@@ -33,8 +33,6 @@
   const DEFAULT_STR_COL_WIDTH = 240
   /** 多列排序配置 */
   let sortSpec = []
-  /** 是否显示值标签 */
-  let showLabels = false
   /** 当前通用过滤表达式 */
   let filterQuery = ''
   /** 侧边栏是否显示 */
@@ -111,29 +109,22 @@
   // ---------- DOM 元素 ----------
 
   const layoutContainer = document.getElementById('layout-container')
+  const resizeHandle = document.getElementById('resize-handle')
+
+  // 工具栏
+  const searchInput = document.getElementById('search-input')
+  const searchApply = document.getElementById('search-apply')
+  const searchClear = document.getElementById('search-clear')
+  const filterError = document.getElementById('filter-error')
+  const toggleSidebar = document.getElementById('toggle-sidebar')
+  const refreshData = document.getElementById('refresh-data')
+  const fileInfo = document.getElementById('file-info')
+
+  // 网格器
+  const gridContainer = document.getElementById('grid-container')
+  const gridOverlay = document.getElementById('grid-overlay')
   const tableHead = document.getElementById('table-head')
   const tableBody = document.getElementById('table-body')
-  const gridWrapper = document.getElementById('grid-wrapper')
-  const varList = document.getElementById('var-list')
-  const searchInput = document.getElementById('search')
-  const searchBtn = document.getElementById('search-btn')
-  const clearFilterBtn = document.getElementById('clear-filter-btn')
-  const filterError = document.getElementById('filter-error')
-  const varSearchInput = document.getElementById('var-search')
-  const selectAllVarsBtn = document.getElementById('select-all-vars')
-  const deselectAllVarsBtn = document.getElementById('deselect-all-vars')
-  const stats = document.getElementById('stats')
-  const toggleLabelsBtn = document.getElementById('toggle-labels-btn')
-  const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn')
-  const sidebarPositionBtn = document.getElementById('sidebar-position-btn')
-  const refreshBtn = document.getElementById('refresh-btn')
-  const resizeHandle = document.getElementById('resize-handle')
-  const sidebar = document.getElementById('sidebar')
-  const gridOverlay = document.getElementById('grid-overlay')
-  const explorerModal = document.getElementById('explorer-modal')
-  const closeExplorerBtn = document.getElementById('close-explorer')
-  const explorerVarName = document.getElementById('explorer-var-name')
-  const explorerBody = document.getElementById('explorer-body')
 
   // 分页控件
   const pageFirst = document.getElementById('page-first')
@@ -144,10 +135,29 @@
   const pageSizeSelect = document.getElementById('page-size')
   const pageSummary = document.getElementById('page-summary')
 
-  // 初始加载界面
+  // 侧边栏
+  const sidebar = document.getElementById('sidebar')
+  const sidebarPositionBtn = document.getElementById('sidebar-position')
+  const variableSearch = document.getElementById('variable-search')
+  const selectAllVariables = document.getElementById('select-all-variables')
+  const deselectAllVariables = document.getElementById('deselect-all-variables')
+  const variableList = document.getElementById('variable-list')
+
+  // 初始加载
   const loadingEl = document.getElementById('initial-loading')
   const progressFill = document.getElementById('progress-fill')
   const progressText = document.getElementById('progress-text')
+
+  // 文件信息弹窗
+  const fileInfoModal = document.getElementById('file-info-modal')
+  const closeFileInfo = document.getElementById('close-file-info')
+  const fileInfoBody = document.getElementById('file-info-body')
+
+  // 变量汇总弹窗
+  const explorerModal = document.getElementById('explorer-modal')
+  const explorerVariable = document.getElementById('explorer-variable')
+  const closeExplorer = document.getElementById('close-explorer')
+  const explorerBody = document.getElementById('explorer-body')
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
@@ -233,17 +243,18 @@
     }
     else if (msg.command === 'loadError') {
       if (loadingEl) {
-        const card = loadingEl.querySelector('.initial-loading-card')
+        const card = loadingEl.querySelector('#initial-loading-card')
         if (card) {
           card.classList.add('error')
           card.innerHTML = `
             <h2>${bootstrap.l10n.couldNotOpenFile}</h2>
-            <div class="load-error-msg">${escapeHtml(msg.error)}</div>
+            <div id="loading-error-message">${escapeHtml(msg.error)}</div>
           `
         }
       }
     }
   })
+  vscode.postMessage({ command: 'ready' })
 
   // ---------- 分页 ----------
 
@@ -259,7 +270,7 @@
       pageOffset = res.page.offset
       totalFiltered = res.page.totalFiltered
       totalAll = res.page.totalAll
-      gridWrapper.scrollTop = 0
+      gridContainer.scrollTop = 0
       renderBody()
       renderPaginationBar()
       succeeded = true
@@ -282,9 +293,9 @@
   function showOverlay(show, message) {
     gridOverlay.style.display = show ? 'flex' : 'none'
     if (show && message) {
-      const m = gridOverlay.querySelector('.grid-overlay-msg')
-      if (m)
-        m.textContent = message
+      const dom = gridOverlay.querySelector('#grid-overlay-message')
+      if (dom)
+        dom.textContent = message
     }
   }
 
@@ -302,7 +313,8 @@
       : formatL10n(bootstrap.l10n.PageSummaryFiltered, fmtInt(start), fmtInt(end), fmtInt(totalFiltered), fmtInt(totalAll))
     pageFirst.disabled = pagePrev.disabled = currentPage <= 1
     pageLast.disabled = pageNext.disabled = currentPage >= totalPages
-    stats.textContent = formatL10n(bootstrap.l10n.RowsSummary, fmtInt(totalFiltered))
+    if (fileInfoModal.classList.contains('show'))
+      renderFileInfo()
   }
 
   /**
@@ -333,13 +345,13 @@
 
   // ---------- 筛选 ----------
 
-  searchBtn.addEventListener('click', applyFilterAndReload)
   searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter')
       applyFilterAndReload()
   })
   searchInput.addEventListener('input', clearFilterError)
-  clearFilterBtn.addEventListener('click', () => {
+  searchApply.addEventListener('click', applyFilterAndReload)
+  searchClear.addEventListener('click', () => {
     searchInput.value = ''
     filterQuery = ''
     applyFilterAndReload()
@@ -388,6 +400,7 @@
    */
   async function applySort(spec) {
     sortSpec = spec
+    renderHeader()
     showOverlay(true, bootstrap.l10n.sorting)
     try {
       await postLatest('sort', 'setSort', { spec })
@@ -442,10 +455,9 @@
    * 重新渲染完整表格
    */
   function renderTable() {
-    gridWrapper.scrollTop = 0
+    gridContainer.scrollTop = 0
     renderHeader()
     renderBody()
-    initColumnResize()
   }
 
   /**
@@ -473,18 +485,23 @@
       const sortInfo = sortSpec.findIndex(s => s.col === header)
       const sortDir = sortInfo >= 0 ? sortSpec[sortInfo].dir : null
       const sortIdx = sortInfo >= 0 && sortSpec.length > 1 ? sortInfo + 1 : null
-      th.innerHTML = `<span>${escapeHtml(header)}</span>${sortDir ? `<span class="sort-indicator">${sortDir === 'asc' ? ' ▲' : ' ▼'}${sortIdx ? ` ${sortIdx}` : ''}</span>` : ''}`
+      th.innerHTML = `<span>${escapeHtml(header)}</span>`
       th.title = meta.labels[i] || header
-      if (sortDir)
+      if (sortDir) {
         th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc')
+        if (sortIdx) {
+          th.setAttribute('data-sort', sortIdx)
+        }
+      }
       th.addEventListener('click', (e) => {
-        if (e.target.classList.contains('resize-handle'))
+        if (e.target instanceof Element && e.target.closest('.resize-handle'))
           return
         handleHeaderClick(i, e.shiftKey)
       })
       tr.appendChild(th)
     })
     tableHead.appendChild(tr)
+    initColumnResize()
   }
 
   /**
@@ -512,16 +529,6 @@
       if (rawVal === null || rawVal === undefined) {
         td.textContent = ''
         td.classList.add('cell-missing')
-      }
-      else if (showLabels && meta.valueLabels && meta.valueLabels[meta.headers[c]]) {
-        const map = meta.valueLabels[meta.headers[c]]
-        if (map[rawVal] !== undefined) {
-          td.textContent = map[rawVal]
-          td.title = formatL10n(bootstrap.l10n.ValueTitle, rawVal)
-        }
-        else {
-          td.textContent = String(rawVal)
-        }
       }
       else {
         td.textContent = String(rawVal)
@@ -557,8 +564,8 @@
     }
 
     const colspan = Math.max(1, visibleColCount())
-    const viewportH = gridWrapper.clientHeight || 600
-    const scrollTop = gridWrapper.scrollTop
+    const viewportH = gridContainer.clientHeight || 600
+    const scrollTop = gridContainer.scrollTop
 
     let start = Math.floor(scrollTop / estRowHeight) - ROW_OVERSCAN
     if (start < 0)
@@ -603,7 +610,7 @@
     renderBody()
   }
 
-  gridWrapper.addEventListener('scroll', () => {
+  gridContainer.addEventListener('scroll', () => {
     if (virtScrollScheduled)
       return
     virtScrollScheduled = true
@@ -632,14 +639,14 @@
    * 渲染变量列表
    */
   function renderSidebar() {
-    varList.innerHTML = ''
+    variableList.innerHTML = ''
     meta.headers.forEach((header, i) => {
       const label = meta.labels[i]
       const div = document.createElement('div')
-      div.className = 'var-item-with-explore'
+      div.className = 'variable-item'
 
-      const varInfo = document.createElement('div')
-      varInfo.className = 'var-info'
+      const info = document.createElement('div')
+      info.className = 'variable-info'
 
       const checkbox = document.createElement('input')
       checkbox.type = 'checkbox'
@@ -647,7 +654,8 @@
       checkbox.addEventListener('change', (e) => {
         if (e.target.checked)
           visibleColumns.add(i)
-        else visibleColumns.delete(i)
+        else
+          visibleColumns.delete(i)
         renderHeader()
         renderBody()
         updateBulkActions()
@@ -658,17 +666,17 @@
       text.title = label || header
       text.onclick = () => checkbox.click()
 
-      varInfo.appendChild(checkbox)
-      varInfo.appendChild(text)
+      info.appendChild(checkbox)
+      info.appendChild(text)
 
-      const exploreBtn = document.createElement('button')
-      exploreBtn.className = 'btn-explore'
-      exploreBtn.textContent = bootstrap.l10n.Explore
-      exploreBtn.onclick = () => openExplorer(i)
+      const btn = document.createElement('button')
+      btn.className = 'outline'
+      btn.textContent = bootstrap.l10n.Explore
+      btn.onclick = () => openExplorer(i)
 
-      div.appendChild(varInfo)
-      div.appendChild(exploreBtn)
-      varList.appendChild(div)
+      div.appendChild(info)
+      div.appendChild(btn)
+      variableList.appendChild(div)
     })
     updateBulkActions()
   }
@@ -681,44 +689,36 @@
       return
     const total = meta.headers.length
     const selected = visibleColumns.size
-    selectAllVarsBtn.style.display = selected < total ? '' : 'none'
-    deselectAllVarsBtn.style.display = selected > 0 ? '' : 'none'
+    selectAllVariables.style.display = selected < total ? '' : 'none'
+    deselectAllVariables.style.display = selected > 0 ? '' : 'none'
   }
 
-  selectAllVarsBtn.addEventListener('click', () => {
+  selectAllVariables.addEventListener('click', () => {
     visibleColumns = new Set(meta.headers.map((_, i) => i))
     renderSidebar()
     renderHeader()
     renderBody()
   })
-  deselectAllVarsBtn.addEventListener('click', () => {
+  deselectAllVariables.addEventListener('click', () => {
     visibleColumns = new Set()
     renderSidebar()
     renderHeader()
     renderBody()
   })
 
-  varSearchInput.addEventListener('input', (e) => {
+  variableSearch.addEventListener('input', (e) => {
     const query = e.target.value.toLowerCase()
-    varList.querySelectorAll('.var-item-with-explore').forEach((item) => {
+    variableList.querySelectorAll('.variable-item').forEach((item) => {
       item.style.display = item.textContent.toLowerCase().includes(query) ? '' : 'none'
     })
   })
 
   // ---------- 顶部工具栏 ----------
 
-  refreshBtn.addEventListener('click', () => {
+  refreshData.addEventListener('click', () => {
     vscode.postMessage({ command: 'refresh' })
   })
-  toggleLabelsBtn.addEventListener('click', () => {
-    showLabels = !showLabels
-    toggleLabelsBtn.textContent = formatL10n(
-      bootstrap.l10n.LabelsToggle,
-      showLabels ? bootstrap.l10n.ON : bootstrap.l10n.OFF,
-    )
-    renderBody()
-  })
-  toggleSidebarBtn.addEventListener('click', () => {
+  toggleSidebar.addEventListener('click', () => {
     sidebarVisible = !sidebarVisible
     layoutContainer.classList.toggle('sidebar-hidden', !sidebarVisible)
   })
@@ -727,9 +727,65 @@
     layoutContainer.classList.toggle('sidebar-bottom', sidebarPosition === 'bottom')
   })
 
+  // ---------- 文件信息弹窗 ----------
+
+  fileInfo.addEventListener('click', () => {
+    renderFileInfo()
+    fileInfoModal.classList.add('show')
+  })
+  closeFileInfo.addEventListener('click', () => fileInfoModal.classList.remove('show'))
+  fileInfoModal.addEventListener('click', (e) => {
+    if (e.target === fileInfoModal)
+      fileInfoModal.classList.remove('show')
+  })
+
+  /**
+   * 渲染文件信息弹窗内容
+   */
+  function renderFileInfo() {
+    const variableCount = meta ? meta.headers.length : 0
+    const release = meta && meta.release ? meta.release : bootstrap.l10n.Unknown
+    const details = [
+      [bootstrap.l10n.FileName, bootstrap.fileName],
+      [bootstrap.l10n.FilePath, bootstrap.filePath],
+      [bootstrap.l10n.FileSize, fmtBytes(bootstrap.fileSize)],
+      [bootstrap.l10n.LastUpdated, bootstrap.lastModified],
+      [bootstrap.l10n.StataRelease, release],
+      [bootstrap.l10n.Rows, fmtInt(totalAll)],
+      [bootstrap.l10n.VariablesCount, fmtInt(variableCount)],
+    ]
+    fileInfoBody.innerHTML = `
+      <div class="file-info-grid">
+        ${details.map(([label, value]) => `
+          <div class="file-info-label">${escapeHtml(label)}</div>
+          <div class="file-info-value" title="${escapeHtml(value)}">${escapeHtml(value)}</div>
+        `).join('')}
+      </div>
+    `
+  }
+
+  /**
+   * 格式化文件大小
+   */
+  function fmtBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0)
+      return bootstrap.l10n.Unknown
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let value = bytes
+    let unitIndex = 0
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024
+      unitIndex++
+    }
+    const formatted = unitIndex === 0
+      ? fmtInt(value)
+      : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+    return `${formatted} ${units[unitIndex]}`
+  }
+
   // ---------- 变量汇总弹窗 ----------
 
-  closeExplorerBtn.addEventListener('click', () => explorerModal.classList.remove('show'))
+  closeExplorer.addEventListener('click', () => explorerModal.classList.remove('show'))
   explorerModal.addEventListener('click', (e) => {
     if (e.target === explorerModal)
       explorerModal.classList.remove('show')
@@ -750,7 +806,7 @@
     const varLabel = meta.labels[varIndex]
     explorerExpr = ''
     explorerInheritGeneral = false
-    explorerVarName.textContent = explorerVar + (varLabel ? ` - ${varLabel}` : '')
+    explorerVariable.textContent = explorerVar + (varLabel ? ` - ${varLabel}` : '')
     explorerModal.classList.add('show')
     await runTabulate()
   }
@@ -796,13 +852,13 @@
     return `
       <div class="explorer-filter-panel">
         <div class="explorer-filter-row">
-          <input type="text" id="explorer-filter-input" placeholder="${bootstrap.l10n.filterForTabulationPlaceholder}" value="${escapeHtml(explorerExpr)}">
-          <button id="explorer-filter-apply" class="btn-search">${bootstrap.l10n.Apply}</button>
-          <button id="explorer-filter-clear" class="btn-toggle">${bootstrap.l10n.Clear}</button>
+          <input id="explorer-filter-input" class="bordered" type="text" placeholder="${bootstrap.l10n.filterForTabulationPlaceholder}" value="${escapeHtml(explorerExpr)}">
+          <button id="explorer-filter-apply">${bootstrap.l10n.Apply}</button>
+          <button id="explorer-filter-clear">${bootstrap.l10n.Clear}</button>
         </div>
         <div class="explorer-filter-row explorer-filter-options">
-          <label class="explorer-inherit">
-            <input type="checkbox" id="explorer-inherit" ${inheritChecked ? 'checked' : ''} ${inheritDisabled ? 'disabled' : ''}>
+          <label>
+            <input id="explorer-inherit" type="checkbox" ${inheritChecked ? 'checked' : ''} ${inheritDisabled ? 'disabled' : ''}>
             <span>${bootstrap.l10n.combineWithGeneralFilter}</span>
             <span class="explorer-inherit-note">${generalNote}</span>
           </label>
@@ -889,23 +945,24 @@
     const total = r.nValid + r.nMissing
     const missingPct = total > 0 ? (r.nMissing / total * 100).toFixed(1) : '0.0'
     let badge, badgeClass
-    if (r.kind === 'discrete') {
-      badge = bootstrap.l10n.Discrete
-      badgeClass = 'var-type-categorical'
-    }
-    else if (r.kind === 'continuous') {
+    if (r.kind === 'continuous') {
       badge = bootstrap.l10n.Continuous
-      badgeClass = 'var-type-continuous'
+      badgeClass = 'primary'
+    }
+    else if (r.kind === 'discrete') {
+      badge = bootstrap.l10n.Discrete
+      badgeClass = 'secondary'
     }
     else {
       badge = bootstrap.l10n.StringType
-      badgeClass = 'var-type-string'
+      badgeClass = 'tertiary'
     }
 
-    let html = `<span class="var-type-badge ${badgeClass}">${badge}</span>`
+    let html = `<div class="explorer-scope-info"><span class="badge ${badgeClass}">${badge}</span>`
     if (typeof scopeN === 'number') {
-      html += `<span class="explorer-scope-info">${formatL10n(bootstrap.l10n.TabulatingScope, fmtNum(scopeN), fmtNum(totalAll))}</span>`
+      html += `<span>${formatL10n(bootstrap.l10n.TabulatingScope, fmtNum(scopeN), fmtNum(totalAll))}</span>`
     }
+    html += `</div>`
     html += `<div class="explorer-section"><h3>${bootstrap.l10n.General}</h3><div class="stats-grid">`
     html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.ValidN}</div><div class="stat-value">${fmtNum(r.nValid)}</div></div>`
     html += `<div class="stat-item"><div class="stat-label">${bootstrap.l10n.Missing}</div><div class="stat-value">${fmtNum(r.nMissing)} (${missingPct}%)</div></div>`
@@ -930,18 +987,18 @@
   function renderDiscrete(r) {
     const maxFreq = r.entries.reduce((m, e) => Math.max(m, e.freq), 0)
     let html = `<div class="explorer-section"><h3>${bootstrap.l10n.FrequencyDistribution}</h3>`
-    html += '<table class="freq-table">'
-    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th style="text-align:right">${bootstrap.l10n.Freq}</th><th style="text-align:right">${bootstrap.l10n.Percent}</th><th style="text-align:right">${bootstrap.l10n.CumPercent}</th><th>${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
+    html += '<table class="flat">'
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th style="text-align: right">${bootstrap.l10n.Freq}</th><th style="text-align: right">${bootstrap.l10n.Percent}</th><th style="text-align: right">${bootstrap.l10n.CumPercent}</th><th style="width: 162px">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.entries) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       const lbl = e.label !== undefined && e.label !== null ? escapeHtml(e.label) : ''
       html += `<tr>
           <td>${escapeHtml(String(e.value))}</td>
           <td>${lbl}</td>
-          <td style="text-align:right">${fmtNum(e.freq)}</td>
-          <td style="text-align:right">${e.pct.toFixed(2)}</td>
-          <td style="text-align:right">${e.cum.toFixed(2)}</td>
-          <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
+          <td style="text-align: right">${fmtNum(e.freq)}</td>
+          <td style="text-align: right">${e.pct.toFixed(2)}</td>
+          <td style="text-align: right">${e.cum.toFixed(2)}</td>
+          <td><div class="bar-chart"><div class="bar-fill" style="width: ${pctOfMax}%"></div></div></td>
         </tr>`
     }
     html += '</tbody></table></div>'
@@ -995,7 +1052,7 @@
     const plotH = H - padT - padB
     const slot = plotW / bars.length
     const barW = Math.max(1, slot - 1)
-    let svg = `<svg class="hist-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
+    let svg = `<svg class="histogram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
     for (let i = 0; i <= 4; i++) {
       const y = padT + plotH - (plotH * i / 4)
       const v = Math.round(maxCount * i / 4)
@@ -1036,7 +1093,7 @@
     const plotW = W - padL - padR
     const plotH = H - padT - padB
     const barW = plotW / bins.length
-    let svg = `<svg class="hist-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
+    let svg = `<svg class="histogram" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
     for (let i = 0; i <= 4; i++) {
       const y = padT + plotH - (plotH * i / 4)
       const v = Math.round(maxCount * i / 4)
@@ -1065,15 +1122,15 @@
   function renderStringTop(r) {
     const maxFreq = r.topValues.reduce((m, e) => Math.max(m, e.freq), 0)
     let html = `<div class="explorer-section"><h3>${bootstrap.l10n.Top10Values}</h3>`
-    html += '<table class="freq-table">'
-    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th style="text-align:right">${bootstrap.l10n.Freq}</th><th style="text-align:right">${bootstrap.l10n.Percent}</th><th>${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
+    html += '<table class="flat">'
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th style="text-align: right">${bootstrap.l10n.Freq}</th><th style="text-align: right">${bootstrap.l10n.Percent}</th><th style="width: 162px">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.topValues) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       html += `<tr>
           <td>${escapeHtml(e.value)}</td>
-          <td style="text-align:right">${fmtNum(e.freq)}</td>
-          <td style="text-align:right">${e.pct.toFixed(2)}</td>
-          <td><div class="bar-cell"><div class="bar-fill" style="width:${pctOfMax}%"></div></div></td>
+          <td style="text-align: right">${fmtNum(e.freq)}</td>
+          <td style="text-align: right">${e.pct.toFixed(2)}</td>
+          <td><div class="bar-chart"><div class="bar-fill" style="width: ${pctOfMax}%"></div></div></td>
         </tr>`
     }
     html += '</tbody></table></div>'
@@ -1091,30 +1148,63 @@
     let startY = 0
     let startW = 0
     let startH = 0
+    let resizeMode = 'horizontal'
+    let pendingSize = 0
+    let resizeRaf = 0
+
+    const applyPanelSize = (size) => {
+      const prop = resizeMode === 'horizontal' ? '--sidebar-width' : '--sidebar-height'
+      layoutContainer.style.setProperty(prop, `${size}px`)
+    }
+
+    const queuePanelSize = (size) => {
+      pendingSize = size
+      if (resizeRaf)
+        return
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0
+        applyPanelSize(pendingSize)
+      })
+    }
+
+    const finishResize = () => {
+      if (!isResizing)
+        return
+      if (resizeRaf) {
+        cancelAnimationFrame(resizeRaf)
+        resizeRaf = 0
+        applyPanelSize(pendingSize)
+      }
+      isResizing = false
+      layoutContainer.classList.remove('is-resizing')
+    }
+
     resizeHandle.addEventListener('mousedown', (e) => {
       isResizing = true
+      resizeMode = sidebarPosition === 'right' ? 'horizontal' : 'vertical'
       startX = e.clientX
       startY = e.clientY
-      if (sidebarPosition === 'right')
-        startW = sidebar.offsetWidth
-      else startH = sidebar.offsetHeight
+      if (resizeMode === 'horizontal')
+        startW = sidebar.getBoundingClientRect().width
+      else startH = sidebar.getBoundingClientRect().height
+      pendingSize = resizeMode === 'horizontal' ? startW : startH
+      layoutContainer.classList.add('is-resizing')
       e.preventDefault()
     })
     document.addEventListener('mousemove', (e) => {
       if (!isResizing)
         return
-      if (sidebarPosition === 'right') {
+      if (resizeMode === 'horizontal') {
         const delta = startX - e.clientX
-        sidebar.style.width = `${Math.max(150, Math.min(600, startW + delta))}px`
+        queuePanelSize(Math.max(150, Math.min(600, startW + delta)))
       }
       else {
         const delta = startY - e.clientY
-        sidebar.style.height = `${Math.max(100, Math.min(500, startH + delta))}px`
+        queuePanelSize(Math.max(100, Math.min(500, startH + delta)))
       }
     })
-    document.addEventListener('mouseup', () => {
-      isResizing = false
-    })
+    document.addEventListener('mouseup', finishResize)
+    window.addEventListener('blur', finishResize)
   }
 
   /** 正在调整宽度的列 */
@@ -1123,6 +1213,18 @@
   let resizeStartX = 0
   /** 列宽拖拽起始宽度 */
   let resizeStartWidth = 0
+  /** 是否已绑定列宽拖拽全局事件 */
+  let columnResizeListenersReady = false
+
+  /**
+   * 结束列宽拖拽
+   */
+  function finishColumnResize() {
+    if (!resizingCol)
+      return
+    resizingCol.classList.remove('is-resizing')
+    resizingCol = null
+  }
 
   /**
    * 初始化列宽拖拽手柄
@@ -1130,6 +1232,8 @@
   function initColumnResize() {
     const ths = tableHead.querySelectorAll('th')
     ths.forEach((th) => {
+      if (th.querySelector('.resize-handle'))
+        return
       const handle = document.createElement('div')
       handle.className = 'resize-handle'
       th.appendChild(handle)
@@ -1137,10 +1241,14 @@
         resizingCol = th
         resizeStartX = e.clientX
         resizeStartWidth = th.offsetWidth
+        th.classList.add('is-resizing')
         e.stopPropagation()
         e.preventDefault()
       })
     })
+    if (columnResizeListenersReady)
+      return
+    columnResizeListenersReady = true
     document.addEventListener('mousemove', (e) => {
       if (!resizingCol)
         return
@@ -1152,8 +1260,7 @@
       if (col != null)
         colWidths[col] = w
     })
-    document.addEventListener('mouseup', () => {
-      resizingCol = null
-    })
+    document.addEventListener('mouseup', finishColumnResize)
+    window.addEventListener('blur', finishColumnResize)
   }
 })()

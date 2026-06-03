@@ -65,6 +65,26 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     let view: DtaView | null = null
     // 复用进行中的加载任务，避免并发消息触发重复解析。
     let loadingPromise: Promise<{ columnar: DtaColumnar, view: DtaView }> | null = null
+    let webviewReadyResolve: (() => void) | null = null
+
+    /**
+     * 等待当前 Webview 脚本完成初始化。
+     */
+    const waitForWebviewReady = (): Promise<void> => {
+      return new Promise((resolve) => {
+        webviewReadyResolve = resolve
+      })
+    }
+
+    /**
+     * 标记当前 Webview 已经注册消息监听。
+     */
+    const markWebviewReady = () => {
+      if (!webviewReadyResolve)
+        return
+      webviewReadyResolve()
+      webviewReadyResolve = null
+    }
 
     /**
      * 按需加载完整数据并创建视图
@@ -126,16 +146,20 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     watcher.onDidChange(async () => {
       invalidate()
       webviewPanel.webview.postMessage({ command: 'showLoading' })
-      await this.loadData(document.uri, webviewPanel, loadAll)
+      await this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
     })
 
     // Webview 消息入口：处理刷新、分页、排序、筛选和变量汇总。
     webviewPanel.webview.onDidReceiveMessage(async (message) => {
+      if (message.command === 'ready') {
+        markWebviewReady()
+        return
+      }
       try {
         if (message.command === 'refresh') {
           invalidate()
           webviewPanel.webview.postMessage({ command: 'showLoading' })
-          await this.loadData(document.uri, webviewPanel, loadAll)
+          await this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
         }
         else if (message.command === 'tabulate') {
           const { columnar, view: v } = await loadAll()
@@ -248,7 +272,13 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       invalidate()
     })
 
-    await this.loadData(document.uri, webviewPanel, loadAll)
+    void this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
+      .catch((e) => {
+        webviewPanel.webview.postMessage({
+          command: 'loadError',
+          error: String(e),
+        })
+      })
   }
 
   /**
@@ -258,15 +288,22 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     uri: vscode.Uri,
     webviewPanel: vscode.WebviewPanel,
     loadAll: () => Promise<{ columnar: DtaColumnar, view: DtaView }>,
+    waitForWebviewReady: () => Promise<void>,
   ) {
     const stats = await vscode.workspace.fs.stat(uri)
     const lastModified = new Date(stats.mtime)
+    const filePath = uri.scheme === 'file' ? uri.fsPath : uri.toString(true)
 
-    // 第一步：先渲染加载界面，让 Webview 能接收后续进度消息。
+    // 第一步：先渲染加载界面，再等待脚本注册消息监听。
+    const webviewReady = waitForWebviewReady()
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview, {
+      fileName: path.basename(filePath),
+      filePath,
+      fileSize: stats.size,
       lastModified: lastModified.toLocaleString(),
       pageSize: DEFAULT_PAGE_SIZE,
     })
+    await webviewReady
 
     // 第二步：执行真实解析，并在完成后发送初始元数据和第一页数据。
     try {
@@ -280,7 +317,6 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
           headers: meta.headers,
           labels: meta.labels,
           types: meta.types,
-          valueLabels: meta.valueLabels,
           nobs: meta.nobs,
           release: meta.release,
         },
@@ -299,7 +335,16 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   /**
    * 构建 Webview HTML
    */
-  private getHtmlForWebview(webview: vscode.Webview, initData: { lastModified: string, pageSize: number }): string {
+  private getHtmlForWebview(
+    webview: vscode.Webview,
+    initData: {
+      fileName: string
+      filePath: string
+      fileSize: number
+      lastModified: string
+      pageSize: number
+    },
+  ): string {
     // 将扩展资源路径转换为 Webview 可访问 URI。
     const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'main.js')))
     const styleUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'main.css')))
@@ -314,80 +359,130 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       </head>
       <body>
         <div id="layout-container">
+          <!-- 主面板 -->
           <div id="main-panel">
+            <!-- 工具栏 -->
             <div id="toolbar">
-              <div class="search-container">
-                <input type="text" id="search" placeholder="${l10n.t('Filter: e.g., edad > 30 & treatment == 1')}">
-                <button id="search-btn" class="btn-search" title="${l10n.t('Apply filter (or press Enter)')}">${l10n.t('Apply')}</button>
-                <button id="clear-filter-btn" class="btn-toggle" title="${l10n.t('Clear filter')}">${l10n.t('Clear')}</button>
+              <div id="toolbar-left">
+                <input id="search-input" type="text" placeholder="${l10n.t('Filter: e.g., edad > 30 & treatment == 1')}">
+                <button id="search-apply" title="${l10n.t('Apply filter (or press Enter)')}">${l10n.t('Apply')}</button>
+                <button id="search-clear" title="${l10n.t('Clear filter')}">${l10n.t('Clear')}</button>
                 <span id="filter-error" class="filter-error"></span>
               </div>
-              <span id="stats">${l10n.t('Rows: {0}', 0)}</span>
-              <button id="toggle-labels-btn" class="btn-toggle">${l10n.t('Labels: {0}', l10n.t('OFF'))}</button>
-              <button id="toggle-sidebar-btn" class="btn-toggle">${l10n.t('Toggle Sidebar')}</button>
-              <div class="toolbar-right">
-                <button id="refresh-btn" class="btn-icon" title="${l10n.t('Refresh data')}">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M13.65 2.35C12.2 0.9 10.21 0 8 0 3.58 0 0 3.58 0 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z"/>
+              <div id="toolbar-right">
+                <button id="toggle-sidebar">${l10n.t('Toggle Sidebar')}</button>
+                <button id="refresh-data" class="icon" title="${l10n.t('Refresh data')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4m-4 4a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>
                   </svg>
                 </button>
-                <span id="last-updated">${l10n.t('Last updated: {0}', escapeHtml(initData.lastModified))}</span>
+                <button id="file-info" class="icon" title="${l10n.t('File information')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                      <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9-3h.01"/>
+                      <path d="M11 12h1v4h1"/>
+                    </g>
+                  </svg>
+                </button>
               </div>
             </div>
+
+            <!-- 网格器 -->
             <div id="grid-wrapper">
-              <table id="data-table">
-                <thead id="table-head"></thead>
-                <tbody id="table-body"></tbody>
-              </table>
-              <div id="grid-overlay" class="grid-overlay" style="display:none">
-                <div class="grid-overlay-msg">${l10n.t('Computing…')}</div>
+              <div id="grid-container">
+                <table id="data-table">
+                  <thead id="table-head"></thead>
+                  <tbody id="table-body"></tbody>
+                </table>
+              </div>
+              <div id="grid-overlay" style="display: none">
+                <div id="grid-overlay-message">${l10n.t('Computing…')}</div>
               </div>
             </div>
-            <div id="pagination-bar">
-              <button id="page-first" class="btn-page" title="${l10n.t('First page')}">&laquo;</button>
-              <button id="page-prev" class="btn-page" title="${l10n.t('Previous page')}">&lsaquo;</button>
-              <span id="page-info">${l10n.t('Page {0} / {1}', 1, 1)}</span>
-              <button id="page-next" class="btn-page" title="${l10n.t('Next page')}">&rsaquo;</button>
-              <button id="page-last" class="btn-page" title="${l10n.t('Last page')}">&raquo;</button>
-              <span class="page-size-wrap">
-                ${l10n.t('Page size:')}
-                <select id="page-size">
-                  <option value="1000" selected>1,000</option>
-                  <option value="5000">5,000</option>
-                  <option value="10000">10,000</option>
-                  <option value="20000">20,000</option>
-                </select>
-              </span>
-              <span id="page-summary"></span>
+
+            <!-- 分页器 -->
+            <div id="pagination">
+              <div id="pagination-left">
+                <button id="page-first" class="icon outline" title="${l10n.t('First page')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m11 7l-5 5l5 5m6-10l-5 5l5 5"/>
+                  </svg>
+                </button>
+                <button id="page-prev" class="icon outline" title="${l10n.t('Previous page')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 6l-6 6l6 6"/>
+                  </svg>
+                </button>
+                <span id="page-info">${l10n.t('Page {0} / {1}', 1, 1)}</span>
+                <button id="page-next" class="icon outline" title="${l10n.t('Next page')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 6l6 6l-6 6"/>
+                  </svg>
+                </button>
+                <button id="page-last" class="icon outline" title="${l10n.t('Last page')}">
+                  <svg width="16" height="16" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m7 7l5 5l-5 5m6-10l5 5l-5 5"/>
+                  </svg>
+                </button>
+                <span id="page-size-wrap">
+                  ${l10n.t('Page size:')}
+                  <select id="page-size" class="bordered">
+                    <option value="1000" selected>1,000</option>
+                    <option value="5000">5,000</option>
+                    <option value="10000">10,000</option>
+                    <option value="20000">20,000</option>
+                  </select>
+                </span>
+              </div>
+              <div id="pagination-right">
+                <span id="page-summary"></span>
+              </div>
             </div>
           </div>
 
+          <!-- 调整手柄 -->
           <div id="resize-handle"></div>
 
+          <!-- 侧边栏 -->
           <div id="sidebar">
-            <div class="sidebar-header">
+            <div id="sidebar-header">
               <h3>${l10n.t('Variables')}</h3>
-              <button id="sidebar-position-btn" class="btn-toggle" title="${l10n.t('Switch sidebar position')}">${l10n.t('Position')}</button>
+              <button id="sidebar-position" title="${l10n.t('Switch sidebar position')}">${l10n.t('Position')}</button>
             </div>
-            <div class="sidebar-search">
-              <input type="text" id="var-search" placeholder="${l10n.t('Filter variables...')}">
+            <div id="sidebar-search">
+              <input id="variable-search" type="text" placeholder="${l10n.t('Filter variables...')}">
             </div>
-            <div class="var-bulk-actions">
-              <button id="select-all-vars" class="btn-bulk">${l10n.t('Select all')}</button>
-              <button id="deselect-all-vars" class="btn-bulk">${l10n.t('Deselect all')}</button>
+            <div id="variable-batch-actions">
+              <button id="select-all-variables">${l10n.t('Select all')}</button>
+              <button id="deselect-all-variables">${l10n.t('Deselect all')}</button>
             </div>
-            <div id="var-list"></div>
+            <div id="variable-list"></div>
           </div>
         </div>
 
-        <!-- 初始加载界面 -->
-        <div id="initial-loading" class="initial-loading">
-          <div class="initial-loading-card">
+        <!-- 初始加载 -->
+        <div id="initial-loading">
+          <div id="initial-loading-card">
             <h2>${l10n.t('Loading dataset…')}</h2>
-            <div class="progress-track">
-              <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+            <div id="progress-track">
+              <div id="progress-fill" style="width: 0%"></div>
             </div>
-            <div id="progress-text" class="progress-text">${l10n.t('Reading file…')}</div>
+            <div id="progress-text">${l10n.t('Reading file…')}</div>
+          </div>
+        </div>
+
+        <!-- 文件信息弹窗 -->
+        <div id="file-info-modal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2>${l10n.t('File information')}</h2>
+              <button id="close-file-info" class="icon">
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div id="file-info-body" class="modal-body"></div>
           </div>
         </div>
 
@@ -395,10 +490,14 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         <div id="explorer-modal" class="modal">
           <div class="modal-content">
             <div class="modal-header">
-              <h2 id="explorer-var-name"></h2>
-              <button id="close-explorer" class="btn-close">&times;</button>
+              <h2 id="explorer-variable"></h2>
+              <button id="close-explorer" class="icon">
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
             </div>
-            <div class="modal-body" id="explorer-body"></div>
+            <div id="explorer-body" class="modal-body"></div>
           </div>
         </div>
 
@@ -422,11 +521,14 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               PageInfo: l10n.t('Page {0} / {1}'),
               PageSummaryAll: l10n.t('Showing {0}-{1} of {2}'),
               PageSummaryFiltered: l10n.t('Showing {0}-{1} of {2} filtered (of {3} total)'),
-              RowsSummary: l10n.t('Rows: {0}'),
-              LabelsToggle: l10n.t('Labels: {0}'),
-              ON: l10n.t('ON'),
-              OFF: l10n.t('OFF'),
-              ValueTitle: l10n.t('Value: {0}'),
+              FileName: l10n.t('File name'),
+              FilePath: l10n.t('File path'),
+              FileSize: l10n.t('File size'),
+              LastUpdated: l10n.t('Last updated'),
+              StataRelease: l10n.t('Stata release'),
+              Rows: l10n.t('Rows'),
+              VariablesCount: l10n.t('Variables'),
+              Unknown: l10n.t('Unknown'),
               Computing: l10n.t('Computing…'),
               FixFilterToComputeResults: l10n.t('Fix the filter to compute results.'),
               ErrorPrefix: l10n.t('Error:'),
@@ -467,17 +569,4 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       </body>
       </html>`
   }
-}
-
-/**
- * 转义 HTML 文本
- */
-function escapeHtml(s: string): string {
-  return String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    '\'': '&#39;',
-  } as { [k: string]: string })[c])
 }
