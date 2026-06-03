@@ -22,6 +22,13 @@
   let totalAll = 0
   /** 当前页在过滤后视图中的起始偏移 */
   let pageOffset = 0
+  /** 当前文件信息，刷新数据后由宿主更新 */
+  let fileInfoState = {
+    fileName: bootstrap.fileName,
+    filePath: bootstrap.filePath,
+    fileSize: bootstrap.fileSize,
+    lastModified: bootstrap.lastModified,
+  }
 
   /** 当前可见列下标集合 */
   let visibleColumns = new Set()
@@ -201,6 +208,8 @@
    * 应用宿主发送的初始数据
    */
   function applyInitData(payload) {
+    if (payload.fileInfo)
+      fileInfoState = { ...fileInfoState, ...payload.fileInfo }
     meta = payload.meta
     currentPageRows = payload.page.rows
     pageOffset = payload.page.offset
@@ -746,10 +755,10 @@
     const variableCount = meta ? meta.headers.length : 0
     const release = meta && meta.release ? meta.release : bootstrap.l10n.Unknown
     const details = [
-      [bootstrap.l10n.FileName, bootstrap.fileName],
-      [bootstrap.l10n.FilePath, bootstrap.filePath],
-      [bootstrap.l10n.FileSize, fmtBytes(bootstrap.fileSize)],
-      [bootstrap.l10n.LastUpdated, bootstrap.lastModified],
+      [bootstrap.l10n.FileName, fileInfoState.fileName],
+      [bootstrap.l10n.FilePath, fileInfoState.filePath],
+      [bootstrap.l10n.FileSize, fmtBytes(fileInfoState.fileSize)],
+      [bootstrap.l10n.LastUpdated, fileInfoState.lastModified],
       [bootstrap.l10n.StataRelease, release],
       [bootstrap.l10n.Rows, fmtInt(totalAll)],
       [bootstrap.l10n.VariablesCount, fmtInt(variableCount)],

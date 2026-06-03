@@ -20,6 +20,13 @@ const { l10n } = vscode
 /** 默认分页大小 */
 const DEFAULT_PAGE_SIZE = 1000
 
+interface DtaFileInfo {
+  fileName: string
+  filePath: string
+  fileSize: number
+  lastModified: string
+}
+
 /**
  * Stata .dta 自定义只读编辑器
  */
@@ -29,7 +36,11 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
    */
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
     const provider = new DtaEditorProvider(context)
-    return vscode.window.registerCustomEditorProvider(DtaEditorProvider.viewType, provider)
+    return vscode.window.registerCustomEditorProvider(DtaEditorProvider.viewType, provider, {
+      webviewOptions: {
+        retainContextWhenHidden: true,
+      },
+    })
   }
 
   private static readonly viewType = 'stataPreview.dta'
@@ -63,27 +74,63 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     // 筛选、排序、分页和汇总都只依赖列式数据，长期持有原始字节会浪费整份文件大小的内存。
     let columnar: DtaColumnar | null = null
     let view: DtaView | null = null
+    let currentFileInfo: DtaFileInfo | null = null
     // 复用进行中的加载任务，避免并发消息触发重复解析。
     let loadingPromise: Promise<{ columnar: DtaColumnar, view: DtaView }> | null = null
+    let webviewReady = false
     let webviewReadyResolve: (() => void) | null = null
 
     /**
      * 等待当前 Webview 脚本完成初始化。
      */
     const waitForWebviewReady = (): Promise<void> => {
+      if (webviewReady)
+        return Promise.resolve()
       return new Promise((resolve) => {
-        webviewReadyResolve = resolve
+        let done = false
+        const finish = () => {
+          if (done)
+            return
+          done = true
+          if (webviewReadyResolve === finish)
+            webviewReadyResolve = null
+          resolve()
+        }
+        webviewReadyResolve = finish
+        setTimeout(finish, 3000)
       })
+    }
+
+    /**
+     * 准备重新渲染 Webview HTML。
+     */
+    const prepareWebviewReload = (): Promise<void> => {
+      webviewReady = false
+      return waitForWebviewReady()
+    }
+
+    /**
+     * 发送当前视图的初始页面。
+     */
+    const postInitData = (v: DtaView) => {
+      this.postInitData(webviewPanel, v, currentFileInfo)
     }
 
     /**
      * 标记当前 Webview 已经注册消息监听。
      */
     const markWebviewReady = () => {
-      if (!webviewReadyResolve)
+      webviewReady = true
+      if (webviewReadyResolve) {
+        webviewReadyResolve()
         return
-      webviewReadyResolve()
-      webviewReadyResolve = null
+      }
+      // VS Code 可能在标签页切换时重建 webview。此时 HTML 回到初始
+      // loading shell，但扩展侧已有缓存数据，需要主动补发一次 initData。
+      if (columnar) {
+        view = new DtaView(columnar)
+        postInitData(view)
+      }
     }
 
     /**
@@ -139,6 +186,15 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       view = null
     }
 
+    /**
+     * 重新读取数据并下发给现有 Webview，不重建 HTML。
+     */
+    const reloadData = async () => {
+      currentFileInfo = await this.getFileInfo(document.uri)
+      const { view: v } = await loadAll()
+      postInitData(v)
+    }
+
     // 文件变更后清空缓存并重新加载。
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(document.uri, '*'),
@@ -146,7 +202,15 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     watcher.onDidChange(async () => {
       invalidate()
       webviewPanel.webview.postMessage({ command: 'showLoading' })
-      await this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
+      try {
+        await reloadData()
+      }
+      catch (e) {
+        webviewPanel.webview.postMessage({
+          command: 'loadError',
+          error: String(e),
+        })
+      }
     })
 
     // Webview 消息入口：处理刷新、分页、排序、筛选和变量汇总。
@@ -159,7 +223,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         if (message.command === 'refresh') {
           invalidate()
           webviewPanel.webview.postMessage({ command: 'showLoading' })
-          await this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
+          await reloadData()
         }
         else if (message.command === 'tabulate') {
           const { columnar, view: v } = await loadAll()
@@ -272,7 +336,9 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       invalidate()
     })
 
-    void this.loadData(document.uri, webviewPanel, loadAll, waitForWebviewReady)
+    void this.loadData(document.uri, webviewPanel, loadAll, prepareWebviewReload, (fileInfo) => {
+      currentFileInfo = fileInfo
+    })
       .catch((e) => {
         webviewPanel.webview.postMessage({
           command: 'loadError',
@@ -282,46 +348,70 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
+   * 读取文件信息。
+   */
+  private async getFileInfo(uri: vscode.Uri): Promise<DtaFileInfo> {
+    const stats = await vscode.workspace.fs.stat(uri)
+    const lastModified = new Date(stats.mtime)
+    const filePath = uri.scheme === 'file' ? uri.fsPath : uri.toString(true)
+    return {
+      fileName: path.basename(filePath),
+      filePath,
+      fileSize: stats.size,
+      lastModified: lastModified.toLocaleString(),
+    }
+  }
+
+  /**
+   * 发送当前视图的初始页面。
+   */
+  private postInitData(
+    webviewPanel: vscode.WebviewPanel,
+    view: DtaView,
+    fileInfo: DtaFileInfo | null,
+  ) {
+    const meta = view.meta
+    const initialPage = view.getPage({ offset: 0, limit: DEFAULT_PAGE_SIZE })
+
+    webviewPanel.webview.postMessage({
+      command: 'initData',
+      meta: {
+        headers: meta.headers,
+        labels: meta.labels,
+        types: meta.types,
+        nobs: meta.nobs,
+        release: meta.release,
+      },
+      page: initialPage,
+      fileInfo,
+    })
+  }
+
+  /**
    * 初始化 Webview 并加载数据
    */
   private async loadData(
     uri: vscode.Uri,
     webviewPanel: vscode.WebviewPanel,
     loadAll: () => Promise<{ columnar: DtaColumnar, view: DtaView }>,
-    waitForWebviewReady: () => Promise<void>,
+    prepareWebviewReload: () => Promise<void>,
+    setCurrentFileInfo: (fileInfo: DtaFileInfo) => void,
   ) {
-    const stats = await vscode.workspace.fs.stat(uri)
-    const lastModified = new Date(stats.mtime)
-    const filePath = uri.scheme === 'file' ? uri.fsPath : uri.toString(true)
+    const fileInfo = await this.getFileInfo(uri)
+    setCurrentFileInfo(fileInfo)
 
     // 第一步：先渲染加载界面，再等待脚本注册消息监听。
-    const webviewReady = waitForWebviewReady()
+    const webviewReadyPromise = prepareWebviewReload()
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview, {
-      fileName: path.basename(filePath),
-      filePath,
-      fileSize: stats.size,
-      lastModified: lastModified.toLocaleString(),
+      ...fileInfo,
       pageSize: DEFAULT_PAGE_SIZE,
     })
-    await webviewReady
+    await webviewReadyPromise
 
     // 第二步：执行真实解析，并在完成后发送初始元数据和第一页数据。
     try {
       const { view } = await loadAll()
-      const meta = view.meta
-      const initialPage = view.getPage({ offset: 0, limit: DEFAULT_PAGE_SIZE })
-
-      webviewPanel.webview.postMessage({
-        command: 'initData',
-        meta: {
-          headers: meta.headers,
-          labels: meta.labels,
-          types: meta.types,
-          nobs: meta.nobs,
-          release: meta.release,
-        },
-        page: initialPage,
-      })
+      this.postInitData(webviewPanel, view, fileInfo)
     }
     catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
