@@ -673,6 +673,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
                   <li>${l10n.t('Click a column header to sort by that column.')}</li>
                   <li>${l10n.t('Hold Shift while clicking column headers to sort by multiple columns.')}</li>
                   <li>${l10n.t('Drag the handle on the right edge of a header to resize the column.')}</li>
+                  <li>${l10n.t('Right-click a column header to copy names, sort, hide columns, reset width, or open variable statistics.')}</li>
                   <li>${l10n.t('Use the pager to move through rows and change the page size.')}</li>
                 </ul>
               </section>
@@ -722,6 +723,15 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               loadingPage: l10n.t('Loading page…'),
               applyingFilter: l10n.t('Applying filter…'),
               sorting: l10n.t('Sorting…'),
+              CopyVariableName: l10n.t('Copy variable name'),
+              CopyVariableLabel: l10n.t('Copy variable label'),
+              SortAscending: l10n.t('Sort ascending'),
+              SortDescending: l10n.t('Sort descending'),
+              ClearColumnSort: l10n.t('Clear column sort'),
+              HideColumn: l10n.t('Hide column'),
+              ShowOnlyThisColumn: l10n.t('Show only this column'),
+              ResetColumnWidth: l10n.t('Reset column width'),
+              ExploreVariableStatistics: l10n.t('Explore variable statistics'),
               filterForTabulationPlaceholder: l10n.t('Filter for this tabulation, e.g. edad == 30 & treatment == 1'),
               combineWithGeneralFilter: l10n.t('Combine with general filter'),
               TabulatingScope: l10n.t('Tabulating {0} of {1} rows.'),

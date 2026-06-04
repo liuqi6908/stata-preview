@@ -46,6 +46,8 @@
   let sidebarVisible = true
   /** 侧边栏位置 */
   let sidebarPosition = 'right'
+  /** 表头右键菜单 */
+  let headerContextMenu = null
 
   // ---------- 表格虚拟滚动 ----------
 
@@ -213,6 +215,7 @@
    * 应用宿主发送的初始数据
    */
   function applyInitData(payload) {
+    hideHeaderContextMenu()
     if (payload.fileInfo)
       fileInfoState = { ...fileInfoState, ...payload.fileInfo }
     meta = payload.meta
@@ -463,6 +466,182 @@
     applySort([...sortSpec])
   }
 
+  /**
+   * 复制文本到剪贴板
+   */
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text)
+        return
+      }
+    }
+    catch {
+      // Webview 权限不一定允许 Clipboard API，下面使用兼容方案。
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    textarea.style.pointerEvents = 'none'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+  }
+
+  /**
+   * 重新渲染列显隐相关界面
+   */
+  function renderColumnVisibility() {
+    renderSidebar()
+    renderHeader()
+    renderBody()
+    updateBulkActions()
+  }
+
+  /**
+   * 设置单列表头菜单排序
+   */
+  function sortColumnFromMenu(colIndex, dir) {
+    const col = meta.headers[colIndex]
+    applySort([{ col, dir }])
+  }
+
+  /**
+   * 清除当前列排序
+   */
+  function clearColumnSort(colIndex) {
+    const col = meta.headers[colIndex]
+    applySort(sortSpec.filter(s => s.col !== col))
+  }
+
+  /**
+   * 隐藏当前列
+   */
+  function hideColumn(colIndex) {
+    visibleColumns.delete(colIndex)
+    renderColumnVisibility()
+  }
+
+  /**
+   * 仅显示当前列
+   */
+  function showOnlyColumn(colIndex) {
+    visibleColumns = new Set([colIndex])
+    renderColumnVisibility()
+  }
+
+  /**
+   * 重置当前列宽
+   */
+  function resetColumnWidth(colIndex) {
+    const col = meta.headers[colIndex]
+    delete colWidths[col]
+    renderHeader()
+    renderBody()
+  }
+
+  /**
+   * 隐藏表头右键菜单
+   */
+  function hideHeaderContextMenu() {
+    if (headerContextMenu)
+      headerContextMenu.remove()
+    headerContextMenu = null
+  }
+
+  /**
+   * 构建表头右键菜单项
+   */
+  function createHeaderMenuItem(label, action, disabled = false) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.textContent = label
+    btn.disabled = disabled
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (disabled)
+        return
+      hideHeaderContextMenu()
+      action()
+    })
+    return btn
+  }
+
+  /**
+   * 构建表头右键菜单分隔线
+   */
+  function createHeaderMenuSeparator() {
+    const separator = document.createElement('div')
+    separator.className = 'context-menu-separator'
+    return separator
+  }
+
+  /**
+   * 显示表头右键菜单
+   */
+  function showHeaderContextMenu(colIndex, clientX, clientY) {
+    hideHeaderContextMenu()
+
+    const header = meta.headers[colIndex]
+    const label = meta.labels[colIndex]
+    const sorted = sortSpec.some(s => s.col === header)
+    const hasCustomWidth = colWidths[header] != null
+    const onlyColumnVisible = visibleColumns.size === 1 && visibleColumns.has(colIndex)
+
+    const menu = document.createElement('div')
+    menu.className = 'context-menu'
+    menu.id = 'header-context-menu'
+    menu.append(
+      createHeaderMenuItem(bootstrap.l10n.CopyVariableName, () => void copyText(header)),
+      createHeaderMenuItem(bootstrap.l10n.CopyVariableLabel, () => void copyText(label), !label),
+      createHeaderMenuSeparator(),
+      createHeaderMenuItem(bootstrap.l10n.SortAscending, () => sortColumnFromMenu(colIndex, 'asc')),
+      createHeaderMenuItem(bootstrap.l10n.SortDescending, () => sortColumnFromMenu(colIndex, 'desc')),
+      createHeaderMenuItem(bootstrap.l10n.ClearColumnSort, () => clearColumnSort(colIndex), !sorted),
+      createHeaderMenuSeparator(),
+      createHeaderMenuItem(bootstrap.l10n.HideColumn, () => hideColumn(colIndex), visibleColumns.size <= 1),
+      createHeaderMenuItem(bootstrap.l10n.ShowOnlyThisColumn, () => showOnlyColumn(colIndex), onlyColumnVisible),
+      createHeaderMenuItem(bootstrap.l10n.ResetColumnWidth, () => resetColumnWidth(colIndex), !hasCustomWidth),
+      createHeaderMenuSeparator(),
+      createHeaderMenuItem(bootstrap.l10n.ExploreVariableStatistics, () => openExplorer(colIndex)),
+    )
+
+    document.body.appendChild(menu)
+    const rect = menu.getBoundingClientRect()
+    const left = Math.max(4, Math.min(clientX, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(clientY, window.innerHeight - rect.height - 4))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    headerContextMenu = menu
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!headerContextMenu)
+      return
+    if (e.target instanceof Node && headerContextMenu.contains(e.target))
+      return
+    hideHeaderContextMenu()
+  })
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape')
+      hideHeaderContextMenu()
+  })
+
+  document.addEventListener('contextmenu', (e) => {
+    if (!headerContextMenu)
+      return
+    if (e.target instanceof Element && e.target.closest('thead th, .context-menu'))
+      return
+    hideHeaderContextMenu()
+  })
+
+  window.addEventListener('blur', hideHeaderContextMenu)
+  window.addEventListener('resize', hideHeaderContextMenu)
+
   // ---------- 表格渲染 ----------
 
   /**
@@ -511,6 +690,13 @@
         if (e.target instanceof Element && e.target.closest('.resize-handle'))
           return
         handleHeaderClick(i, e.shiftKey)
+      })
+      th.addEventListener('contextmenu', (e) => {
+        if (e.target instanceof Element && e.target.closest('.resize-handle'))
+          return
+        e.preventDefault()
+        e.stopPropagation()
+        showHeaderContextMenu(i, e.clientX, e.clientY)
       })
       tr.appendChild(th)
     })
