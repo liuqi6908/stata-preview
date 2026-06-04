@@ -7,6 +7,7 @@
 
 import type { FilterSpec, SortSpec } from './dtaView'
 import type { DtaColumnar } from './parser'
+import type { TableExportFormat } from './tableExporter'
 import { Buffer } from 'node:buffer'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -14,6 +15,7 @@ import * as vscode from 'vscode'
 import { DtaView } from './dtaView'
 import { compileFilter, FilterCompileError } from './filterCompiler'
 import { DtaParser } from './parser'
+import { EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, exportViewToCsv, exportViewToXlsx } from './tableExporter'
 
 const { l10n } = vscode
 
@@ -319,13 +321,31 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
             })
           }
         }
+        else if (message.command === 'exportData') {
+          const { view: v } = await loadAll()
+          const format: TableExportFormat = message.format === 'xlsx' ? 'xlsx' : 'csv'
+          const validHeaders = new Set(v.meta.headers)
+          const columns = Array.isArray(message.columns)
+            ? message.columns.filter((col: unknown): col is string => typeof col === 'string' && validHeaders.has(col))
+            : v.meta.headers
+          const savedUri = await this.exportData(document.uri, v, format, columns)
+          webviewPanel.webview.postMessage({
+            command: 'exportResult',
+            requestId: message.requestId,
+            cancelled: !savedUri,
+            path: savedUri ? this.formatUriForDisplay(savedUri) : null,
+          })
+        }
       }
       catch (e) {
         // 所有命令共享的兜底错误响应，避免 Webview 请求悬空。
+        const msg = e instanceof Error ? e.message : String(e)
+        if (message.command === 'exportData')
+          void vscode.window.showErrorMessage(msg)
         webviewPanel.webview.postMessage({
           command: 'error',
           requestId: message.requestId,
-          error: String(e),
+          error: msg,
         })
       }
     })
@@ -360,6 +380,84 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       fileSize: stats.size,
       lastModified: lastModified.toLocaleString(),
     }
+  }
+
+  /**
+   * 导出当前表格视图。
+   */
+  private async exportData(
+    sourceUri: vscode.Uri,
+    view: DtaView,
+    format: TableExportFormat,
+    columns: string[],
+  ): Promise<vscode.Uri | null> {
+    if (columns.length === 0)
+      throw new Error(l10n.t('No columns selected.'))
+
+    if (format === 'xlsx') {
+      if (view.totalFiltered + 1 > EXCEL_MAX_ROWS) {
+        throw new Error(l10n.t(
+          'Excel export supports up to {0} rows. Use CSV for larger datasets.',
+          EXCEL_MAX_ROWS.toLocaleString(),
+        ))
+      }
+      if (columns.length > EXCEL_MAX_COLUMNS) {
+        throw new Error(l10n.t(
+          'Excel export supports up to {0} columns. Use CSV for wider datasets.',
+          EXCEL_MAX_COLUMNS.toLocaleString(),
+        ))
+      }
+    }
+
+    const ext = format === 'xlsx' ? 'xlsx' : 'csv'
+    const saveUri = await vscode.window.showSaveDialog({
+      title: l10n.t('Export data'),
+      defaultUri: this.getExportDefaultUri(sourceUri, ext),
+      filters: format === 'xlsx'
+        ? { [l10n.t('Excel Workbook')]: ['xlsx'] }
+        : { [l10n.t('CSV File')]: ['csv'] },
+    })
+    if (!saveUri)
+      return null
+
+    const bytes = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: l10n.t('Exporting data…'),
+      cancellable: false,
+    }, async () => {
+      return format === 'xlsx'
+        ? exportViewToXlsx(view, columns)
+        : exportViewToCsv(view, columns)
+    })
+
+    await vscode.workspace.fs.writeFile(saveUri, bytes)
+    void vscode.window.showInformationMessage(l10n.t(
+      'Exported data to {0}',
+      this.formatUriForDisplay(saveUri),
+    ))
+    return saveUri
+  }
+
+  /**
+   * 生成导出文件默认路径。
+   */
+  private getExportDefaultUri(sourceUri: vscode.Uri, ext: string): vscode.Uri | undefined {
+    const sourcePath = sourceUri.scheme === 'file' ? sourceUri.fsPath : sourceUri.path
+    const baseName = path.basename(sourcePath, path.extname(sourcePath)) || 'stata-data'
+    const fileName = `${baseName}.${ext}`
+
+    if (sourceUri.scheme === 'file')
+      return vscode.Uri.file(path.join(path.dirname(sourceUri.fsPath), fileName))
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
+    return workspaceFolder ? vscode.Uri.joinPath(workspaceFolder.uri, fileName) : undefined
+  }
+
+  /**
+   * 格式化 URI 以便展示。
+   */
+  private formatUriForDisplay(uri: vscode.Uri): string {
+    return uri.scheme === 'file' ? uri.fsPath : uri.toString(true)
   }
 
   /**
@@ -474,6 +572,11 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 <button id="refresh-data" class="icon" title="${l10n.t('Refresh data')}">
                   <svg width="18" height="18" viewBox="0 0 24 24">
                     <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4m-4 4a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/>
+                  </svg>
+                </button>
+                <button id="export-data" class="icon" title="${l10n.t('Export data')}">
+                  <svg width="18" height="18" viewBox="0 0 24 24">
+                    <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12"/>
                   </svg>
                 </button>
                 <button id="file-info" class="icon" title="${l10n.t('File information')}">
@@ -690,6 +793,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 <h3>${l10n.t('Data and file')}</h3>
                 <ul>
                   <li>${l10n.t('Refresh data to re-read the current .dta file from disk.')}</li>
+                  <li>${l10n.t('Export data as CSV or Excel using the current filter, sort order, and visible columns.')}</li>
                   <li>${l10n.t('Open file information to view path, size, update time, Stata release, row count, and variable count.')}</li>
                 </ul>
               </section>
@@ -723,6 +827,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               loadingPage: l10n.t('Loading page…'),
               applyingFilter: l10n.t('Applying filter…'),
               sorting: l10n.t('Sorting…'),
+              exportingData: l10n.t('Exporting data…'),
               CopyVariableName: l10n.t('Copy variable name'),
               CopyVariableLabel: l10n.t('Copy variable label'),
               SortAscending: l10n.t('Sort ascending'),
@@ -732,6 +837,8 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               ShowOnlyThisColumn: l10n.t('Show only this column'),
               ResetColumnWidth: l10n.t('Reset column width'),
               ExploreVariableStatistics: l10n.t('Explore variable statistics'),
+              ExportAsCsv: l10n.t('Export as CSV'),
+              ExportAsExcel: l10n.t('Export as Excel'),
               filterForTabulationPlaceholder: l10n.t('Filter for this tabulation, e.g. edad == 30 & treatment == 1'),
               combineWithGeneralFilter: l10n.t('Combine with general filter'),
               TabulatingScope: l10n.t('Tabulating {0} of {1} rows.'),

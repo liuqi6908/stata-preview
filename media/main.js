@@ -126,6 +126,7 @@
   const searchClear = document.getElementById('search-clear')
   const filterError = document.getElementById('filter-error')
   const toggleSidebar = document.getElementById('toggle-sidebar')
+  const exportData = document.getElementById('export-data')
   const refreshData = document.getElementById('refresh-data')
   const fileInfo = document.getElementById('file-info')
   const usageGuide = document.getElementById('usage-guide')
@@ -618,6 +619,48 @@
     headerContextMenu = menu
   }
 
+  /**
+   * 显示导出菜单
+   */
+  function showExportMenu(anchor) {
+    hideHeaderContextMenu()
+
+    const menu = document.createElement('div')
+    menu.className = 'context-menu'
+    menu.append(
+      createHeaderMenuItem(bootstrap.l10n.ExportAsCsv, () => void exportTableData('csv')),
+      createHeaderMenuItem(bootstrap.l10n.ExportAsExcel, () => void exportTableData('xlsx')),
+    )
+
+    document.body.appendChild(menu)
+    const anchorRect = anchor.getBoundingClientRect()
+    const rect = menu.getBoundingClientRect()
+    const left = Math.max(4, Math.min(anchorRect.right - rect.width, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(anchorRect.bottom + 4, window.innerHeight - rect.height - 4))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    headerContextMenu = menu
+  }
+
+  /**
+   * 导出当前表格视图
+   */
+  async function exportTableData(format) {
+    if (!meta)
+      return
+    const columns = meta.headers.filter((_, i) => visibleColumns.has(i))
+    showOverlay(true, bootstrap.l10n.exportingData)
+    try {
+      await postRequest('exportData', { format, columns })
+    }
+    catch (e) {
+      console.error('export failed', e)
+    }
+    finally {
+      showOverlay(false)
+    }
+  }
+
   document.addEventListener('click', (e) => {
     if (!headerContextMenu)
       return
@@ -917,6 +960,10 @@
 
   refreshData.addEventListener('click', () => {
     vscode.postMessage({ command: 'refresh' })
+  })
+  exportData.addEventListener('click', (e) => {
+    e.stopPropagation()
+    showExportMenu(exportData)
   })
   toggleSidebar.addEventListener('click', () => {
     sidebarVisible = !sidebarVisible

@@ -1,8 +1,16 @@
 {
   "cSpell.words": [
     "antfu",
+    "dasharray",
     "esbuild",
-    "stata"
+    "inlist",
+    "inrange",
+    "minmax",
+    "nowrap",
+    "regexm",
+    "rgba",
+    "stata",
+    "strpos"
   ],
   "js/ts.tsdk.path": "node_modules/typescript/lib"
 }

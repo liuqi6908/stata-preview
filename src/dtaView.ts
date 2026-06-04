@@ -29,16 +29,18 @@ export interface FilterSpec {
 }
 
 /** 分页请求参数 */
-interface PageRequest {
+export interface PageRequest {
   /** 在（过滤 + 排序后）视图中的起始位置 */
   offset: number
   /** 分页大小 */
   limit: number
+  /** 可选列名列表；不传时返回全部列 */
+  columns?: string[]
 }
 
 /** 分页结果 */
-interface PageResult {
-  /** 行数组，每行与 meta.headers 对齐 */
+export interface PageResult {
+  /** 行数组，每行与请求列或 meta.headers 对齐 */
   rows: any[][]
   /** 行在原始文件中的行索引 */
   rowIndices: number[]
@@ -139,14 +141,21 @@ export class DtaView {
 
     const headers = this.data.meta.headers
     const types = this.data.meta.types
-    const K = headers.length
+    const headerIndex = new Map(headers.map((h, j) => [h, j]))
+    const selectedHeaders = req.columns
+      ? req.columns.filter(h => headerIndex.has(h))
+      : headers
+    const K = selectedHeaders.length
 
-    const cols = headers.map((h, j) => ({
-      col: this.data.columns[h],
-      miss: this.data.missing[h],
-      type: types[j],
-      isString: Array.isArray(this.data.columns[h]),
-    }))
+    const cols = selectedHeaders.map((h) => {
+      const j = headerIndex.get(h)!
+      return {
+        col: this.data.columns[h],
+        miss: this.data.missing[h],
+        type: types[j],
+        isString: Array.isArray(this.data.columns[h]),
+      }
+    })
 
     const rows = Array.from<any[]>({ length: limit })
     const rowIndices = Array.from<number>({ length: limit })
