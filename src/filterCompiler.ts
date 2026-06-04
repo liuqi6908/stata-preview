@@ -11,11 +11,13 @@
  *   &        AND     （也接受 `&&`）
  *   ! / not  NOT     （一元）
  *   ==, !=, ~=, <, <=, >, >= 比较运算
+ *   +, -, *, /, ^ 算术运算
  *
  * 操作数：
  *   - 数值字面量：12, 3.5, 1e6
  *   - 字符串字面量："foo" 或 'foo'
  *   - 变量名（必须匹配列头）
+ *   - 函数调用：missing(x), inlist(x, ...), contains(s, sub) 等
  *   - 括号表达式
  *
  * 缺失值语义：缺失值参与比较时，该比较结果为 false。
@@ -52,7 +54,8 @@ export class FilterCompileError extends Error {
 /** 词元类型 */
 type TokenType
   = | 'NUMBER' | 'STRING' | 'IDENT'
-    | 'LPAREN' | 'RPAREN'
+    | 'LPAREN' | 'RPAREN' | 'COMMA'
+    | 'PLUS' | 'MINUS' | 'STAR' | 'SLASH' | 'CARET'
     | 'AND' | 'OR' | 'NOT'
     | 'EQ' | 'NEQ' | 'LT' | 'LE' | 'GT' | 'GE'
     | 'EOF'
@@ -67,6 +70,12 @@ function tokenTypeLabel(type: TokenType): string {
     case 'IDENT': return l10n.t('variable name')
     case 'LPAREN': return l10n.t('left parenthesis')
     case 'RPAREN': return l10n.t('right parenthesis')
+    case 'COMMA': return l10n.t('comma')
+    case 'PLUS': return l10n.t('plus operator')
+    case 'MINUS': return l10n.t('minus operator')
+    case 'STAR': return l10n.t('multiply operator')
+    case 'SLASH': return l10n.t('divide operator')
+    case 'CARET': return l10n.t('power operator')
     case 'AND': return l10n.t('AND operator')
     case 'OR': return l10n.t('OR operator')
     case 'NOT': return l10n.t('NOT operator')
@@ -174,6 +183,36 @@ function tokenize(src: string): Token[] {
       i++
       continue
     }
+    if (c === ',') {
+      tokens.push({ type: 'COMMA', value: ',', pos: start })
+      i++
+      continue
+    }
+    if (c === '+') {
+      tokens.push({ type: 'PLUS', value: '+', pos: start })
+      i++
+      continue
+    }
+    if (c === '-') {
+      tokens.push({ type: 'MINUS', value: '-', pos: start })
+      i++
+      continue
+    }
+    if (c === '*') {
+      tokens.push({ type: 'STAR', value: '*', pos: start })
+      i++
+      continue
+    }
+    if (c === '/') {
+      tokens.push({ type: 'SLASH', value: '/', pos: start })
+      i++
+      continue
+    }
+    if (c === '^') {
+      tokens.push({ type: 'CARET', value: '^', pos: start })
+      i++
+      continue
+    }
     if (c === '&') {
       tokens.push({ type: 'AND', value: '&', pos: start })
       i += (src[i + 1] === '&' ? 2 : 1)
@@ -266,6 +305,9 @@ type Node
   = | { kind: 'num', value: number }
     | { kind: 'str', value: string }
     | { kind: 'var', name: string }
+    | { kind: 'unary', op: 'pos' | 'neg', expr: Node }
+    | { kind: 'binary', op: 'add' | 'sub' | 'mul' | 'div' | 'pow', a: Node, b: Node }
+    | { kind: 'call', name: string, args: Node[] }
     | { kind: 'not', expr: Node }
     | { kind: 'cmp', op: 'eq' | 'neq' | 'lt' | 'le' | 'gt' | 'ge', a: Node, b: Node }
     | { kind: 'and', a: Node, b: Node }
@@ -322,7 +364,7 @@ class Parser {
   }
 
   private parseCmp(): Node {
-    const a = this.parseUnary()
+    const a = this.parseAdd()
     const t = this.peek()
     const cmpMap: { [k: string]: 'eq' | 'neq' | 'lt' | 'le' | 'gt' | 'ge' } = {
       EQ: 'eq',
@@ -334,16 +376,61 @@ class Parser {
     }
     if (cmpMap[t.type]) {
       this.consume()
-      const b = this.parseUnary()
+      const b = this.parseAdd()
       return { kind: 'cmp', op: cmpMap[t.type], a, b }
     }
     return a
+  }
+
+  private parseAdd(): Node {
+    let left = this.parseMul()
+    while (this.peek().type === 'PLUS' || this.peek().type === 'MINUS') {
+      const t = this.consume()
+      left = {
+        kind: 'binary',
+        op: t.type === 'PLUS' ? 'add' : 'sub',
+        a: left,
+        b: this.parseMul(),
+      }
+    }
+    return left
+  }
+
+  private parseMul(): Node {
+    let left = this.parsePower()
+    while (this.peek().type === 'STAR' || this.peek().type === 'SLASH') {
+      const t = this.consume()
+      left = {
+        kind: 'binary',
+        op: t.type === 'STAR' ? 'mul' : 'div',
+        a: left,
+        b: this.parsePower(),
+      }
+    }
+    return left
+  }
+
+  private parsePower(): Node {
+    const left = this.parseUnary()
+    if (this.peek().type === 'CARET') {
+      this.consume()
+      return { kind: 'binary', op: 'pow', a: left, b: this.parsePower() }
+    }
+    return left
   }
 
   private parseUnary(): Node {
     if (this.peek().type === 'NOT') {
       this.consume()
       return { kind: 'not', expr: this.parseUnary() }
+    }
+    if (this.peek().type === 'PLUS') {
+      this.consume()
+      return { kind: 'unary', op: 'pos', expr: this.parseUnary() }
+    }
+    if (this.peek().type === 'MINUS') {
+      this.consume()
+      return { kind: 'unary', op: 'neg', expr: this.parseUnary() }
     }
     return this.parsePrimary()
   }
@@ -366,6 +453,20 @@ class Parser {
     }
     if (t.type === 'IDENT') {
       this.consume()
+      if (this.peek().type === 'LPAREN') {
+        this.consume()
+        const args: Node[] = []
+        if (this.peek().type !== 'RPAREN') {
+          while (true) {
+            args.push(this.parseOr())
+            if (this.peek().type !== 'COMMA')
+              break
+            this.consume()
+          }
+        }
+        this.expect('RPAREN')
+        return { kind: 'call', name: t.value, args }
+      }
       return { kind: 'var', name: t.value }
     }
     throw new FilterCompileError(l10n.t('Unexpected token "{0}"', t.value), t.pos)
@@ -374,10 +475,110 @@ class Parser {
 
 // ---------- 表达式编译 ----------
 
+/** 标量值 */
+type Scalar = number | string | boolean
+
+/** 值解析结果 */
+type ValueResult
+  = | { v: Scalar, missing: false }
+    | { v: null, missing: true }
+
 /** 值解析器 */
-type Resolver = (rowIdx: number) =>
-  | { v: number | string, missing: false }
-  | { v: null, missing: true }
+type Resolver = (rowIdx: number) => ValueResult
+
+const MISSING_VALUE: ValueResult = { v: null, missing: true }
+
+/**
+ * 判断标量是否按筛选语义为真。
+ */
+function isTruthyValue(x: ValueResult): boolean {
+  if (x.missing)
+    return false
+  if (typeof x.v === 'number')
+    return x.v !== 0 && !Number.isNaN(x.v)
+  if (typeof x.v === 'string')
+    return x.v.length > 0
+  return x.v
+}
+
+/**
+ * 判断两个非缺失值是否相等。
+ */
+function scalarEquals(a: Scalar, b: Scalar): boolean {
+  return a === b
+}
+
+/**
+ * 判断值是否支持大小比较。
+ */
+function isComparable(v: Scalar): v is number | string {
+  return typeof v === 'number' || typeof v === 'string'
+}
+
+/**
+ * 比较两个非缺失值。
+ */
+function compareScalars(a: Scalar, b: Scalar, op: 'lt' | 'le' | 'gt' | 'ge'): boolean {
+  if (!isComparable(a) || !isComparable(b) || typeof a !== typeof b)
+    return false
+  switch (op) {
+    case 'lt': return a < b
+    case 'le': return a <= b
+    case 'gt': return a > b
+    case 'ge': return a >= b
+  }
+}
+
+/**
+ * 将值转换为用于字符串函数的文本。
+ */
+function scalarToString(v: Scalar): string {
+  return String(v)
+}
+
+/**
+ * 读取数值参数。
+ */
+function expectNumber(v: Scalar, label: string): number {
+  if (typeof v === 'number')
+    return v
+  throw new FilterCompileError(l10n.t('{0} expects numeric values', label))
+}
+
+/**
+ * 检查函数参数个数。
+ */
+function expectArgCount(name: string, got: number, expected: number): void {
+  if (got !== expected)
+    throw new FilterCompileError(l10n.t('Function "{0}" expects {1} arguments, got {2}', name, expected, got))
+}
+
+/**
+ * 检查函数参数个数下限。
+ */
+function expectMinArgCount(name: string, got: number, min: number): void {
+  if (got < min)
+    throw new FilterCompileError(l10n.t('Function "{0}" expects at least {1} arguments, got {2}', name, min, got))
+}
+
+/**
+ * 将 Stata 数值日期/日期时间或日期字符串转换为 Date。
+ */
+function toDate(value: Scalar): Date | null {
+  if (typeof value === 'number') {
+    const stataEpoch = Date.UTC(1960, 0, 1)
+    const ms = Math.abs(value) > 1_000_000
+      ? stataEpoch + value
+      : stataEpoch + value * 86_400_000
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  if (typeof value === 'string') {
+    const d = new Date(value)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  return null
+}
 
 /**
  * 编译值表达式，并记录引用到的变量名
@@ -394,6 +595,54 @@ function compileVal(
   if (node.kind === 'str') {
     const v = node.value
     return () => ({ v, missing: false })
+  }
+  if (node.kind === 'unary') {
+    const r = compileVal(node.expr, data, referenced)
+    const label = node.op === 'neg' ? '-' : '+'
+    return (i: number) => {
+      const x = r(i)
+      if (x.missing)
+        return MISSING_VALUE
+      const n = expectNumber(x.v, label)
+      return { v: node.op === 'neg' ? -n : n, missing: false }
+    }
+  }
+  if (node.kind === 'binary') {
+    const ra = compileVal(node.a, data, referenced)
+    const rb = compileVal(node.b, data, referenced)
+    const opLabel: Record<'add' | 'sub' | 'mul' | 'div' | 'pow', string> = {
+      add: '+',
+      sub: '-',
+      mul: '*',
+      div: '/',
+      pow: '^',
+    }
+    return (i: number) => {
+      const A = ra(i)
+      if (A.missing)
+        return MISSING_VALUE
+      const B = rb(i)
+      if (B.missing)
+        return MISSING_VALUE
+      if (node.op === 'add' && typeof A.v === 'string' && typeof B.v === 'string')
+        return { v: A.v + B.v, missing: false }
+      const label = opLabel[node.op]
+      const a = expectNumber(A.v, label)
+      const b = expectNumber(B.v, label)
+      const v = node.op === 'add'
+        ? a + b
+        : node.op === 'sub'
+          ? a - b
+          : node.op === 'mul'
+            ? a * b
+            : node.op === 'div'
+              ? a / b
+              : a ** b
+      return Number.isFinite(v) ? { v, missing: false } : MISSING_VALUE
+    }
+  }
+  if (node.kind === 'call') {
+    return compileCall(node, data, referenced)
   }
   if (node.kind === 'var') {
     const arr = data.columns[node.name]
@@ -412,6 +661,138 @@ function compileVal(
     }
   }
   throw new FilterCompileError(l10n.t('Expected a value, got expression of kind "{0}"', node.kind))
+}
+
+/**
+ * 编译内置函数调用。
+ */
+function compileCall(
+  node: Extract<Node, { kind: 'call' }>,
+  data: DtaColumnar,
+  referenced: Set<string>,
+): Resolver {
+  const name = node.name.toLowerCase()
+  const args = node.args.map(arg => compileVal(arg, data, referenced))
+
+  if (name === 'missing') {
+    expectMinArgCount(name, args.length, 1)
+    return (i: number) => ({ v: args.some(arg => arg(i).missing), missing: false })
+  }
+
+  if (name === 'inlist') {
+    expectMinArgCount(name, args.length, 2)
+    return (i: number) => {
+      const needle = args[0](i)
+      if (needle.missing)
+        return { v: false, missing: false }
+      for (let k = 1; k < args.length; k++) {
+        const item = args[k](i)
+        if (!item.missing && scalarEquals(needle.v, item.v))
+          return { v: true, missing: false }
+      }
+      return { v: false, missing: false }
+    }
+  }
+
+  if (name === 'inrange') {
+    expectArgCount(name, args.length, 3)
+    return (i: number) => {
+      const value = args[0](i)
+      const lo = args[1](i)
+      const hi = args[2](i)
+      if (value.missing || lo.missing || hi.missing)
+        return { v: false, missing: false }
+      return {
+        v: compareScalars(value.v, lo.v, 'ge') && compareScalars(value.v, hi.v, 'le'),
+        missing: false,
+      }
+    }
+  }
+
+  if (name === 'contains') {
+    expectArgCount(name, args.length, 2)
+    return (i: number) => {
+      const text = args[0](i)
+      const part = args[1](i)
+      if (text.missing || part.missing)
+        return { v: false, missing: false }
+      return { v: scalarToString(text.v).includes(scalarToString(part.v)), missing: false }
+    }
+  }
+
+  if (name === 'strpos') {
+    expectArgCount(name, args.length, 2)
+    return (i: number) => {
+      const text = args[0](i)
+      const part = args[1](i)
+      if (text.missing || part.missing)
+        return { v: 0, missing: false }
+      const pos = scalarToString(text.v).indexOf(scalarToString(part.v))
+      return { v: pos < 0 ? 0 : pos + 1, missing: false }
+    }
+  }
+
+  if (name === 'regexm') {
+    expectArgCount(name, args.length, 2)
+    const regexCache = new Map<string, RegExp>()
+    const getRegex = (pattern: string) => {
+      let re = regexCache.get(pattern)
+      if (!re) {
+        try {
+          re = new RegExp(pattern)
+        }
+        catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          throw new FilterCompileError(l10n.t('Invalid regular expression: {0}', msg))
+        }
+        regexCache.set(pattern, re)
+      }
+      return re
+    }
+    return (i: number) => {
+      const text = args[0](i)
+      const pattern = args[1](i)
+      if (text.missing || pattern.missing)
+        return { v: false, missing: false }
+      return { v: getRegex(scalarToString(pattern.v)).test(scalarToString(text.v)), missing: false }
+    }
+  }
+
+  if (name === 'lower' || name === 'upper' || name === 'trim' || name === 'length') {
+    expectArgCount(name, args.length, 1)
+    return (i: number) => {
+      const value = args[0](i)
+      if (value.missing)
+        return MISSING_VALUE
+      const text = scalarToString(value.v)
+      if (name === 'lower')
+        return { v: text.toLowerCase(), missing: false }
+      if (name === 'upper')
+        return { v: text.toUpperCase(), missing: false }
+      if (name === 'trim')
+        return { v: text.trim(), missing: false }
+      return { v: text.length, missing: false }
+    }
+  }
+
+  if (name === 'year' || name === 'month' || name === 'day') {
+    expectArgCount(name, args.length, 1)
+    return (i: number) => {
+      const value = args[0](i)
+      if (value.missing)
+        return MISSING_VALUE
+      const date = toDate(value.v)
+      if (!date)
+        return MISSING_VALUE
+      if (name === 'year')
+        return { v: date.getUTCFullYear(), missing: false }
+      if (name === 'month')
+        return { v: date.getUTCMonth() + 1, missing: false }
+      return { v: date.getUTCDate(), missing: false }
+    }
+  }
+
+  throw new FilterCompileError(l10n.t('Unknown function: {0}', node.name))
 }
 
 /**
@@ -452,34 +833,16 @@ function compileBool(
       switch (op) {
         case 'eq': return va === vb
         case 'neq': return va !== vb
-        case 'lt': return va < vb
-        case 'le': return va <= vb
-        case 'gt': return va > vb
-        case 'ge': return va >= vb
+        case 'lt':
+        case 'le':
+        case 'gt':
+        case 'ge': return compareScalars(va, vb, op)
       }
     }
   }
-  // 顶层值表达式按非零、非空、非缺失判断真值
-  if (node.kind === 'num') {
-    const truthy = node.value !== 0
-    return () => truthy
-  }
-  if (node.kind === 'str') {
-    const truthy = node.value.length > 0
-    return () => truthy
-  }
-  if (node.kind === 'var') {
-    const r = compileVal(node, data, referenced)
-    return (i) => {
-      const x = r(i)
-      if (x.missing)
-        return false
-      if (typeof x.v === 'number')
-        return x.v !== 0
-      return x.v.length > 0
-    }
-  }
-  throw new FilterCompileError(l10n.t('Cannot evaluate expression node'))
+  // 顶层值表达式按非零、非空、非缺失、布尔 true 判断真值。
+  const r = compileVal(node, data, referenced)
+  return i => isTruthyValue(r(i))
 }
 
 /**

@@ -600,15 +600,71 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
             <div id="usage-guide-body" class="modal-body">
               <section class="usage-section">
                 <h3>${l10n.t('Filtering')}</h3>
-                <ul>
-                  <li>${l10n.t('Enter an expression in the filter box, then apply it to show matching rows.')}</li>
-                  <li>${l10n.t('Use variable names directly, including Unicode names such as Chinese column names.')}</li>
-                  <li>${l10n.t('Supported comparisons: ==, !=, ~=, <, <=, >, >=.')}</li>
-                  <li>${l10n.t('Combine conditions with &, |, !, or the words and, or, not.')}</li>
-                  <li>${l10n.t('Wrap string values in single or double quotes.')}</li>
-                </ul>
-                <div class="usage-examples">
-                  <code>edad &gt; 30 &amp; treatment == 1</code>
+                <div class="usage-subsection">
+                  <h4>${l10n.t('Basic syntax')}</h4>
+                  <ul>
+                    <li>${l10n.t('Enter an expression in the filter box, then apply it to show matching rows.')}</li>
+                    <li>${l10n.t('Use variable names directly, including Unicode names such as Chinese column names.')}</li>
+                    <li>${l10n.t('Wrap string values in single or double quotes.')}</li>
+                    <li>${l10n.t('Use parentheses to group conditions and control evaluation order.')}</li>
+                  </ul>
+                </div>
+                <div class="usage-subsection">
+                  <h4>${l10n.t('Operators and functions')}</h4>
+                  <ul>
+                    <li>${l10n.t('Supported comparisons: ==, !=, ~=, <, <=, >, >=.')}</li>
+                    <li>${l10n.t('Combine conditions with &, |, !, or the words and, or, not.')}</li>
+                    <li>${l10n.t('Use arithmetic operators +, -, *, /, and ^ in numeric filters.')}</li>
+                    <li>${l10n.t('Use missing(), inlist(), and inrange() for missing values, sets, and inclusive ranges.')}</li>
+                    <li>${l10n.t('Use contains(), strpos(), regexm(), lower(), upper(), trim(), and length() for string filters.')}</li>
+                    <li>${l10n.t('Use year(), month(), and day() with Stata numeric dates/datetimes or parseable date strings.')}</li>
+                  </ul>
+                </div>
+                <div class="usage-subsection">
+                  <h4>${l10n.t('Filter examples')}</h4>
+                  <div class="usage-example-groups">
+                    <div class="usage-example-group">
+                      <h5>${l10n.t('Numeric filters')}</h5>
+                      <p>${l10n.t('Compare numbers directly or compute derived values before comparing.')}</p>
+                      <div class="usage-examples">
+                        <code>edad &gt; 30 &amp; treatment == 1</code>
+                        <code>income / 10000 &gt; 5</code>
+                      </div>
+                    </div>
+                    <div class="usage-example-group">
+                      <h5>${l10n.t('Grouped conditions')}</h5>
+                      <p>${l10n.t('Use parentheses when mixing AND and OR conditions.')}</p>
+                      <div class="usage-examples">
+                        <code>(year &gt;= 2020 &amp; year &lt;= 2024) | missing(year)</code>
+                      </div>
+                    </div>
+                    <div class="usage-example-group">
+                      <h5>${l10n.t('Missing values, sets, and ranges')}</h5>
+                      <p>${l10n.t('Use helper functions for common categorical and interval checks.')}</p>
+                      <div class="usage-examples">
+                        <code>missing(score)</code>
+                        <code>inlist(city, "昆明市", "大理市")</code>
+                        <code>inrange(year, 2020, 2024)</code>
+                      </div>
+                    </div>
+                    <div class="usage-example-group">
+                      <h5>${l10n.t('String filters')}</h5>
+                      <p>${l10n.t('Search text, normalize values, or match regular expressions.')}</p>
+                      <div class="usage-examples">
+                        <code>contains(城市名称, "市")</code>
+                        <code>regexm(code, "^[0-9]+$")</code>
+                        <code>lower(trim(name)) == "abc"</code>
+                      </div>
+                    </div>
+                    <div class="usage-example-group">
+                      <h5>${l10n.t('Date filters')}</h5>
+                      <p>${l10n.t('Extract date parts from Stata numeric dates/datetimes or parseable date strings.')}</p>
+                      <div class="usage-examples">
+                        <code>year(date) == 2024</code>
+                        <code>month(date) == 6 &amp; day(date) == 3</code>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </section>
               <section class="usage-section">
