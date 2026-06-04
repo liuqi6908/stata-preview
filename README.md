@@ -140,3 +140,11 @@
 * 插件支持大容量文件，但解析速度仍受文件大小和可用内存影响
 * 为优化查看体验，插件采用分页渲染方式，而非一次性加载所有数据
 * 筛选、排序、分页、统计与导出均基于扩展宿主中的列式数据视图处理
+
+## 来源与许可证
+
+本项目基于 [dmenares93/stata-viewer](https://github.com/dmenares93/stata-viewer) 二次开发，原项目采用 [MIT License](https://github.com/dmenares93/stata-viewer/blob/main/LICENSE)。
+
+本项目继续以 MIT License 发布。上游项目中保留的代码版权归原作者 Diego Menares 所有；本项目新增和修改部分版权归 LiuQi 所有。完整版权声明与许可条款见 [LICENSE](./LICENSE)。
+
+Stata 是 StataCorp LLC 的商标。本项目为独立开源项目，与 StataCorp LLC 无隶属、赞助或认可关系。

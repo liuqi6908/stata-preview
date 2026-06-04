@@ -4,6 +4,7 @@
   "displayName": "%displayName%",
   "version": "0.0.4",
   "description": "%description%",
+  "license": "MIT",
   "homepage": "https://github.com/liuqi6908/stata-preview",
   "repository": {
     "type": "git",

@@ -140,3 +140,11 @@ For each variable, the explorer can:
 * The plugin supports large files, but parsing speed is still affected by file size and available memory
 * To optimize the viewing experience, the plugin uses paginated rendering instead of loading all data at once
 * Filtering, sorting, pagination, statistics, and export are processed through a columnar data view in the extension host
+
+## Origin and License
+
+This project is derived from [dmenares93/stata-viewer](https://github.com/dmenares93/stata-viewer), which is licensed under the [MIT License](https://github.com/dmenares93/stata-viewer/blob/main/LICENSE).
+
+This project is also released under the MIT License. Copyright for code retained from the upstream project belongs to Diego Menares; copyright for additions and modifications in this project belongs to LiuQi. See [LICENSE](./LICENSE) for the full copyright notices and license terms.
+
+Stata is a trademark of StataCorp LLC. This project is an independent open-source project and is not affiliated with, sponsored by, or endorsed by StataCorp LLC.
