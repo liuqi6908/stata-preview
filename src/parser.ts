@@ -467,12 +467,19 @@ function readColumnarRow(
 }
 
 /**
+ * 查找开始标签偏移
+ */
+function findTagStart(buf: Buffer, tag: string, fromOffset: number = 0): number {
+  const needle = Buffer.from(`<${tag}>`, 'latin1')
+  return buf.indexOf(needle, fromOffset)
+}
+
+/**
  * 查找标签内容起始偏移
  */
 function findTagOpen(buf: Buffer, tag: string, fromOffset: number = 0): number {
-  const needle = Buffer.from(`<${tag}>`, 'latin1')
-  const idx = buf.indexOf(needle, fromOffset)
-  return idx === -1 ? -1 : idx + needle.length
+  const idx = findTagStart(buf, tag, fromOffset)
+  return idx === -1 ? -1 : idx + tag.length + 2
 }
 
 /**
@@ -481,6 +488,64 @@ function findTagOpen(buf: Buffer, tag: string, fromOffset: number = 0): number {
 function findTagClose(buf: Buffer, tag: string, fromOffset: number = 0): number {
   const needle = Buffer.from(`</${tag}>`, 'latin1')
   return buf.indexOf(needle, fromOffset)
+}
+
+/**
+ * 读取 <map> 中的 14 个 uint64 LE 偏移量。
+ */
+function readMapOffsets(buffer: Buffer): number[] | null {
+  const mapOpen = findTagOpen(buffer, 'map')
+  if (mapOpen === -1 || mapOpen + 14 * 8 > buffer.length)
+    return null
+
+  const offsets: number[] = []
+  for (let i = 0; i < 14; i++) {
+    offsets.push(Number(buffer.readBigUInt64LE(mapOpen + i * 8)))
+  }
+  return offsets
+}
+
+/**
+ * 判断指定偏移处是否正好是目标开始标签。
+ * 用于校验 <map> 中记录的偏移是否可信，避免把偏移 0 或错误位置处的头部内容当作变量标签等数据段读取。
+ */
+function isTagStart(buffer: Buffer, tag: string, offset: number): boolean {
+  if (!Number.isFinite(offset) || offset < 0)
+    return false
+  const needle = Buffer.from(`<${tag}>`, 'latin1')
+  if (offset + needle.length > buffer.length)
+    return false
+  return buffer.subarray(offset, offset + needle.length).equals(needle)
+}
+
+/**
+ * 根据 map 定位标签；若某些 117 文件的 map 槽位为 0 或偏移无效，则回退到实际标签搜索。
+ */
+function resolveMappedTagStart(buffer: Buffer, mapOffsets: number[] | null, mapIdx: number, tag: string): number {
+  const mapped = mapOffsets?.[mapIdx]
+  if (typeof mapped === 'number') {
+    if (isTagStart(buffer, tag, mapped))
+      return mapped
+
+    // 容忍少数写入器把内容起点而不是开标签起点写入 map。
+    const contentMappedStart = mapped - (tag.length + 2)
+    if (isTagStart(buffer, tag, contentMappedStart))
+      return contentMappedStart
+  }
+
+  return findTagStart(buffer, tag)
+}
+
+function sliceMappedTagContent(buffer: Buffer, mapOffsets: number[] | null, mapIdx: number, tag: string): { start: number, end: number } {
+  const tagStart = resolveMappedTagStart(buffer, mapOffsets, mapIdx, tag)
+  if (tagStart === -1)
+    throw new Error(`Missing <${tag}> tag.`)
+
+  const start = tagStart + tag.length + 2
+  const end = findTagClose(buffer, tag, start)
+  if (end === -1)
+    throw new Error(`Missing </${tag}> close tag.`)
+  return { start, end }
 }
 
 /**
@@ -548,27 +613,16 @@ export class DtaParser {
     //  9: <data>
     // 10: <strls>
     // 11: <value_labels>
-    // 12: </stata_data>  结束标记
+    // 12: </stata_dta>  结束标记
     // 13: 文件结束
-    const mapOpen = findTagOpen(buffer, 'map')
-    if (mapOpen === -1)
+    const mapOffsets = readMapOffsets(buffer)
+    if (!mapOffsets)
       throw new Error('Missing <map> tag.')
-    const mapOffsets: number[] = []
-    for (let i = 0; i < 14; i++) {
-      const big = buffer.readBigUInt64LE(mapOpen + i * 8)
-      mapOffsets.push(Number(big))
-    }
 
     // 辅助：根据 map 提供的偏移读取 <tag>...</tag> 之间的内容。
-    // map 指向开标签的 '<'。
+    // 标准 map 指向开标签的 '<'；少数非标准 117 文件会回退到实际标签搜索。
     const sliceTagContent = (mapIdx: number, tag: string): { start: number, end: number } => {
-      const tagStart = mapOffsets[mapIdx]
-      const openLen = tag.length + 2 // <tag>
-      const start = tagStart + openLen
-      const end = findTagClose(buffer, tag, start)
-      if (end === -1)
-        throw new Error(`Missing </${tag}> close tag.`)
-      return { start, end }
+      return sliceMappedTagContent(buffer, mapOffsets, mapIdx, tag)
     }
 
     // --- 5. <variable_types>: K * uint16 LE ---
@@ -693,10 +747,12 @@ export class DtaParser {
     }
     catch { /* 跳过值标签绑定 */ }
 
-    const strls = readStrLs(buffer, fmt, mapOffsets[10])
+    const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'))
 
     // --- 9. <data>: 读取行数据 ---
-    const dataTagStart = mapOffsets[9]
+    const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
+    if (dataTagStart === -1)
+      throw new Error('Missing <data> tag.')
     const dataContentStart = dataTagStart + '<data>'.length
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
     // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理。
@@ -1151,17 +1207,17 @@ interface Layout {
  */
 function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number): string[] {
   // 使用 map 重新查找标签偏移（开销小；parseColumnar 仅调用一次）。
-  const mapOpen = findTagOpen(buffer, 'map')
-  if (mapOpen === -1)
+  let vl: { start: number, end: number }
+  try {
+    vl = sliceMappedTagContent(buffer, readMapOffsets(buffer), 7, 'variable_labels')
+  }
+  catch {
     return Array.from<string>({ length: K }).fill('')
-  const off7 = Number(buffer.readBigUInt64LE(mapOpen + 7 * 8))
-  const start = off7 + 'variable_labels'.length + 2
-  const end = findTagClose(buffer, 'variable_labels', start)
-  if (end === -1)
-    return Array.from<string>({ length: K }).fill('')
+  }
+
   const labels: string[] = []
   for (let j = 0; j < K; j++) {
-    labels.push(readCString(buffer, start + j * fmt.varlabelLen, fmt.varlabelLen, fmt.encoding))
+    labels.push(readCString(buffer, vl.start + j * fmt.varlabelLen, fmt.varlabelLen, fmt.encoding))
   }
   return labels
 }
@@ -1207,18 +1263,12 @@ function computeLayout(buffer: Buffer): Layout {
     ? buffer.readUInt32LE(nOpen)
     : Number(buffer.readBigUInt64LE(nOpen))
 
-  const mapOpen = findTagOpen(buffer, 'map')
-  const mapOffsets: number[] = []
-  for (let i = 0; i < 14; i++) {
-    mapOffsets.push(Number(buffer.readBigUInt64LE(mapOpen + i * 8)))
-  }
+  const mapOffsets = readMapOffsets(buffer)
+  if (!mapOffsets)
+    throw new Error('Missing <map> tag.')
 
   const sliceTagContent = (mapIdx: number, tag: string): { start: number, end: number } => {
-    const start = mapOffsets[mapIdx] + tag.length + 2
-    const end = findTagClose(buffer, tag, start)
-    if (end === -1)
-      throw new Error(`Missing </${tag}>`)
-    return { start, end }
+    return sliceMappedTagContent(buffer, mapOffsets, mapIdx, tag)
   }
 
   const vt = sliceTagContent(2, 'variable_types')
@@ -1306,8 +1356,11 @@ function computeLayout(buffer: Buffer): Layout {
   }
   catch { /* 跳过值标签 */ }
 
-  const dataStart = mapOffsets[9] + '<data>'.length
-  const strls = readStrLs(buffer, fmt, mapOffsets[10])
+  const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
+  if (dataTagStart === -1)
+    throw new Error('Missing <data> tag.')
+  const dataStart = dataTagStart + '<data>'.length
+  const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'))
 
   return { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels }
 }
