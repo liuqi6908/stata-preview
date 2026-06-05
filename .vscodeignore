@@ -9,6 +9,7 @@ eslint.config.mjs
 # 构建文件
 **/*.map
 out/
+*.vsix
 
 # 配置与日志
 .vscode/

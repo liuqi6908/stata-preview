@@ -8,7 +8,7 @@
   <a href='./README.md'>简体中文</a> | English
 </p>
 
-Open Stata-formatted .dta files in VSCode and preview their contents in a tabular format without leaving the editor.
+Open Stata-formatted .dta files in VSCode and preview their contents in a tabular format without leaving the editor. The extension currently supports Stata .dta format releases 113-115 and 117-119, with LSF/MSF byte order compatibility.
 
 ## Motivation for Plugin Development
 
@@ -31,6 +31,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 ### Implemented Features
 
 * Open .dta files in a read-only tabular view
+* Support Stata .dta format releases 113-115 and 117-119, with LSF/MSF byte order compatibility
 * Display progress during data loading for intuitive feedback on loading status
 * Support paginated loading to adapt to large-capacity datasets
 * Support Stata-like filter expressions, including Unicode variable names such as Chinese column names
@@ -42,7 +43,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Hide/show specified columns via the sidebar
 * Built-in Variable Explorer: support for univariate frequency analysis and descriptive statistics
 * Export the current table view as CSV or Excel
-* Built-in file information dialog for path, size, update time, Stata release, row count, and variable count
+* Built-in file information dialog for path, size, update time, Stata release, byte order, row count, and variable count
 * Built-in usage guide dialog for filter expressions and table operations
 * Automatically refresh the view when the underlying file is updated
 
@@ -63,6 +64,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Right-click a column header to open column actions
 * The sidebar supports searching for variables and hiding/showing specified columns
 * Use the toolbar to open file information, usage guide, refresh data, or export data
+* Press Esc to close file information, usage guide, or variable statistics dialogs
 
 ### Data Filtering
 
