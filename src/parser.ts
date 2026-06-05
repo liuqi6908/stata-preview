@@ -8,6 +8,7 @@
  */
 
 import { Buffer } from 'node:buffer'
+import { l10n } from 'vscode'
 import { isLegacyDtaFormat, parseColumnarLegacy, parseColumnarLegacyAsync } from './parserLegacy'
 
 /** 行式预览数据 */
@@ -540,12 +541,12 @@ function resolveMappedTagStart(buffer: Buffer, mapOffsets: number[] | null, mapI
 function sliceMappedTagContent(buffer: Buffer, mapOffsets: number[] | null, mapIdx: number, tag: string): { start: number, end: number } {
   const tagStart = resolveMappedTagStart(buffer, mapOffsets, mapIdx, tag)
   if (tagStart === -1)
-    throw new Error(`Missing <${tag}> tag.`)
+    throw new Error(l10n.t('Missing <{0}> tag.', tag))
 
   const start = tagStart + tag.length + 2
   const end = findTagClose(buffer, tag, start)
   if (end === -1)
-    throw new Error(`Missing </${tag}> close tag.`)
+    throw new Error(l10n.t('Missing </{0}> close tag.', tag))
   return { start, end }
 }
 
@@ -563,7 +564,7 @@ export class DtaParser {
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
       const first10 = buffer.toString('hex', 0, 10)
-      throw new Error(`Unsupported Stata file. First 10 bytes: ${first10}. Only Stata 13+ (formats 117/118) are supported.`)
+      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Only Stata 13+ (formats 117/118) are supported.', first10))
     }
 
     const releaseMatch = head.match(/<release>(\d+)<\/release>/)
@@ -574,23 +575,23 @@ export class DtaParser {
     else if (releaseNum === 118)
       fmt = FMT_118
     else
-      throw new Error(`Unsupported Stata release: ${releaseNum || 'unknown'}. Supported: 117, 118.`)
+      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
 
     const byteorderMatch = head.match(/<byteorder>(LSF|MSF)<\/byteorder>/)
     const isLE = !byteorderMatch || byteorderMatch[1] === 'LSF'
     if (!isLE)
-      throw new Error('MSF (big-endian) Stata files are not supported yet.')
+      throw new Error(l10n.t('MSF (big-endian) Stata files are not supported yet.'))
 
     // --- 2. 解析 <K>（变量数量） ---
     const kOpen = findTagOpen(buffer, 'K')
     if (kOpen === -1)
-      throw new Error('Missing <K> tag.')
+      throw new Error(l10n.t('Missing <{0}> tag.', 'K'))
     const K = buffer.readUInt16LE(kOpen)
 
     // --- 3. 解析 <N>（观测数）：117 为 4 字节，118 为 8 字节 ---
     const nOpen = findTagOpen(buffer, 'N')
     if (nOpen === -1)
-      throw new Error('Missing <N> tag.')
+      throw new Error(l10n.t('Missing <{0}> tag.', 'N'))
     let N: number
     if (fmt.nobsBytes === 4) {
       N = buffer.readUInt32LE(nOpen)
@@ -619,7 +620,7 @@ export class DtaParser {
     // 13: 文件结束
     const mapOffsets = readMapOffsets(buffer)
     if (!mapOffsets)
-      throw new Error('Missing <map> tag.')
+      throw new Error(l10n.t('Missing <{0}> tag.', 'map'))
 
     // 辅助：根据 map 提供的偏移读取 <tag>...</tag> 之间的内容。
     // 标准 map 指向开标签的 '<'；少数非标准 117 文件会回退到实际标签搜索。
@@ -754,7 +755,7 @@ export class DtaParser {
     // --- 9. <data>: 读取行数据 ---
     const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
     if (dataTagStart === -1)
-      throw new Error('Missing <data> tag.')
+      throw new Error(l10n.t('Missing <{0}> tag.', 'data'))
     const dataContentStart = dataTagStart + '<data>'.length
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
     // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理。
@@ -823,7 +824,7 @@ export class DtaParser {
   static tabulate(columnar: DtaColumnar, varName: string, indices?: Uint32Array): TabulateResult {
     const colIdx = columnar.meta.headers.indexOf(varName)
     if (colIdx === -1)
-      throw new Error(`Variable not found: ${varName}`)
+      throw new Error(l10n.t('Variable not found: {0}', varName))
     const colType = columnar.meta.types[colIdx]
     const col = columnar.columns[varName]
     const miss = columnar.missing[varName]
@@ -1245,18 +1246,19 @@ function computeLayout(buffer: Buffer): Layout {
     }
     if (legacyFormats[firstByte]) {
       throw new Error(
-        `Unsupported file: ${legacyFormats[firstByte]}. `
-        + `This viewer supports formats 117 (Stata 13) and 118 (Stata 14+). `
-        + `Open the file in Stata and re-save it (\`saveold, version(13)\` or just \`save\`) to use it here.`,
+        l10n.t(
+          'Unsupported file: {0}. This viewer supports formats 117 (Stata 13) and 118 (Stata 14+). Open the file in Stata and re-save it (`saveold, version(13)` or just `save`) to use it here.',
+          legacyFormats[firstByte],
+        ),
       )
     }
-    throw new Error('Not a Stata file (or unrecognized format).')
+    throw new Error(l10n.t('Not a Stata file (or unrecognized format).'))
   }
   const releaseMatch = head.match(/<release>(\d+)<\/release>/)
   const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
   const fmt = releaseNum === 117 ? FMT_117 : releaseNum === 118 ? FMT_118 : null
   if (!fmt)
-    throw new Error(`Unsupported Stata release: ${releaseNum}. Supported: 117, 118.`)
+    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
 
   const kOpen = findTagOpen(buffer, 'K')
   const K = buffer.readUInt16LE(kOpen)
@@ -1267,7 +1269,7 @@ function computeLayout(buffer: Buffer): Layout {
 
   const mapOffsets = readMapOffsets(buffer)
   if (!mapOffsets)
-    throw new Error('Missing <map> tag.')
+    throw new Error(l10n.t('Missing <{0}> tag.', 'map'))
 
   const sliceTagContent = (mapIdx: number, tag: string): { start: number, end: number } => {
     return sliceMappedTagContent(buffer, mapOffsets, mapIdx, tag)
@@ -1360,7 +1362,7 @@ function computeLayout(buffer: Buffer): Layout {
 
   const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
   if (dataTagStart === -1)
-    throw new Error('Missing <data> tag.')
+    throw new Error(l10n.t('Missing <{0}> tag.', 'data'))
   const dataStart = dataTagStart + '<data>'.length
   const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'))
 

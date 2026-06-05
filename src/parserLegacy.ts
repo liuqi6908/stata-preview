@@ -30,6 +30,7 @@
 
 import type { Buffer } from 'node:buffer'
 import type { ColumnArray, DtaColumnar } from './parser'
+import { l10n } from 'vscode'
 
 // ---------- 辅助函数 ----------
 
@@ -227,24 +228,24 @@ interface LegacyLayout {
 function computeLegacyLayout(buf: Buffer): LegacyLayout {
   const ds = buf[0]
   if (ds !== 113 && ds !== 114 && ds !== 115) {
-    throw new Error(`Not a legacy Stata dta (format ${ds}).`)
+    throw new Error(l10n.t('Not a legacy Stata dta (format {0}).', ds))
   }
   const release = ds
   const byteorder = buf[1]
   if (byteorder !== 2) {
-    throw new Error('Big-endian (MSF) legacy Stata files are not supported.')
+    throw new Error(l10n.t('Big-endian (MSF) legacy Stata files are not supported.'))
   }
   const filetype = buf[2]
   if (filetype !== 1) {
-    throw new Error(`Unexpected filetype byte: ${filetype}`)
+    throw new Error(l10n.t('Unexpected filetype byte: {0}', filetype))
   }
 
   const nvar = buf.readUInt16LE(4)
   const nobs = buf.readInt32LE(6)
   if (nobs < 0 || nobs > 1e9)
-    throw new Error(`Implausible nobs: ${nobs}`)
+    throw new Error(l10n.t('Implausible nobs: {0}', nobs))
   if (nvar < 0 || nvar > 32767)
-    throw new Error(`Implausible nvar: ${nvar}`)
+    throw new Error(l10n.t('Implausible nvar: {0}', nvar))
 
   let off = 109
 
@@ -255,7 +256,7 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
     const code = buf[off + j]
     const dec = decodeLegacyType(code)
     if (!dec)
-      throw new Error(`Unknown type code ${code} at variable ${j}`)
+      throw new Error(l10n.t('Unknown type code {0} at variable {1}', code, j))
     types.push(dec.type)
     typeSizes.push(dec.size)
   }
@@ -299,7 +300,7 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
     }
     off += 5 + len
     if (len < 0 || off > buf.length)
-      throw new Error('Malformed expansion field.')
+      throw new Error(l10n.t('Malformed expansion field.'))
   }
 
   const rowSize = typeSizes.reduce((a, b) => a + b, 0)

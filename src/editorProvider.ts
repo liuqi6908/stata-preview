@@ -22,6 +22,10 @@ const { l10n } = vscode
 /** 默认分页大小 */
 const DEFAULT_PAGE_SIZE = 1000
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 interface DtaFileInfo {
   fileName: string
   filePath: string
@@ -210,7 +214,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       catch (e) {
         webviewPanel.webview.postMessage({
           command: 'loadError',
-          error: String(e),
+          error: errorMessage(e),
         })
       }
     })
@@ -261,7 +265,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
             }
           }
           catch (e) {
-            const msg = e instanceof FilterCompileError ? e.message : String(e)
+            const msg = e instanceof FilterCompileError ? e.message : errorMessage(e)
             webviewPanel.webview.postMessage({
               command: 'tabulateResult',
               requestId: message.requestId,
@@ -313,7 +317,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
             })
           }
           catch (e) {
-            const msg = e instanceof FilterCompileError ? e.message : String(e)
+            const msg = e instanceof FilterCompileError ? e.message : errorMessage(e)
             webviewPanel.webview.postMessage({
               command: 'filterError',
               requestId: message.requestId,
@@ -339,7 +343,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       }
       catch (e) {
         // 所有命令共享的兜底错误响应，避免 Webview 请求悬空。
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = errorMessage(e)
         if (message.command === 'exportData')
           void vscode.window.showErrorMessage(msg)
         webviewPanel.webview.postMessage({
@@ -362,7 +366,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       .catch((e) => {
         webviewPanel.webview.postMessage({
           command: 'loadError',
-          error: String(e),
+          error: errorMessage(e),
         })
       })
   }
@@ -512,7 +516,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       this.postInitData(webviewPanel, view, fileInfo)
     }
     catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = errorMessage(e)
       webviewPanel.webview.postMessage({
         command: 'loadError',
         error: msg,

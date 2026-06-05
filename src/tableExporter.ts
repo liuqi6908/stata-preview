@@ -8,6 +8,7 @@
 
 import type { DtaView } from './dtaView'
 import { Buffer } from 'node:buffer'
+import { l10n } from 'vscode'
 
 /** 表格导出格式 */
 export type TableExportFormat = 'csv' | 'xlsx'
@@ -267,8 +268,8 @@ function createZip(entries: ZipEntry[]): Uint8Array {
 
   const centralOffset = offset
   const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0)
-  assertZip32('central directory', centralSize)
-  assertZip32('central directory offset', centralOffset)
+  assertZip32(l10n.t('central directory'), centralSize)
+  assertZip32(l10n.t('central directory offset'), centralOffset)
 
   const end = Buffer.alloc(22)
   end.writeUInt32LE(0x06054B50, 0)
@@ -288,7 +289,7 @@ function createZip(entries: ZipEntry[]): Uint8Array {
  */
 function assertZip32(label: string, value: number): void {
   if (value > 0xFFFFFFFF)
-    throw new Error(`ZIP entry is too large: ${label}`)
+    throw new Error(l10n.t('ZIP entry is too large: {0}', label))
 }
 
 /** CRC32 查表，用于 ZIP 条目校验和。 */
