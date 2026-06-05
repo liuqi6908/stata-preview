@@ -1,7 +1,7 @@
 /**
  * VS Code 扩展用的 Stata .dta 解析器。
  *
- * 原生支持 Stata 格式 117（Stata 13）和 118（Stata 14+），
+ * 原生支持 Stata 格式 117（Stata 13）、118（Stata 14+）和 119（Stata 15+），
  * 对于 113、114、115 等旧版二进制格式则派发到 ./parserLegacy 处理。
  *
  * 参考：https://www.stata.com/help.cgi?dta
@@ -50,7 +50,7 @@ export interface DtaMeta {
   /** 原始总观测数 */
   nobs: number
   /** 解析后的 Stata release 标记 */
-  release: 117 | 118
+  release: 117 | 118 | 119
   /** 文件字节序 */
   byteOrder: ByteOrder
 }
@@ -163,18 +163,15 @@ const MAX_DISCRETE_CATEGORIES = 20
 const MAX_INT_BAR_VALUES = 200
 /** 连续变量直方图分箱数 */
 const HISTOGRAM_BINS = 30
-/** Stata 现代格式变量数量上限 */
-const MAX_MODERN_VARIABLES = 32767
-
 export type ByteOrder = 'LSF' | 'MSF'
 
 /**
- * Stata 117/118 文件头部格式规格。
+ * Stata 117/118/119 文件头部格式规格。
  * 控制变量名、变量标签和值标签名称等字段的长度与编码方式。
  */
 interface FormatSpec {
   /** Stata release 标记 */
-  release: 117 | 118
+  release: 117 | 118 | 119
   /** 变量名字段长度 */
   varnameLen: number
   /** 变量标签字段长度 */
@@ -185,6 +182,10 @@ interface FormatSpec {
   valueLabelNameLen: number
   /** 观测数字段字节数 */
   nobsBytes: number
+  /** 变量数量字段字节数 */
+  kBytes: 2 | 4
+  /** 当前 release 支持的变量数量上限 */
+  maxVariables: number
   /** 字符串编码 */
   encoding: 'latin1' | 'utf8'
 }
@@ -225,6 +226,8 @@ const FMT_117: FormatSpec = {
   formatLen: 49,
   valueLabelNameLen: 33,
   nobsBytes: 4,
+  kBytes: 2,
+  maxVariables: 32767,
   encoding: 'latin1',
 }
 
@@ -236,13 +239,28 @@ const FMT_118: FormatSpec = {
   formatLen: 57,
   valueLabelNameLen: 129,
   nobsBytes: 8,
+  kBytes: 2,
+  maxVariables: 32767,
+  encoding: 'utf8',
+}
+
+/** Stata 119 文件规格 */
+const FMT_119: FormatSpec = {
+  release: 119,
+  varnameLen: 129,
+  varlabelLen: 321,
+  formatLen: 57,
+  valueLabelNameLen: 129,
+  nobsBytes: 8,
+  kBytes: 4,
+  maxVariables: 120000,
   encoding: 'utf8',
 }
 
 /**
- * 解码 Stata 117/118 类型代码。
+ * 解码 Stata 117/118/119 类型代码。
  *
- * 类型代码（uint16 LE）：
+ * 类型代码（uint16，按文件字节序读取）：
  *   1..2045   -> strN（固定宽度字符串，N 字节）
  *   32768     -> strL（长字符串，数据中为 8 字节指针）
  *   65526     -> double（8 字节）
@@ -319,39 +337,69 @@ function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'lat
   return buf.toString(encoding, offset, end)
 }
 
-/** strL 长字符串查找表：数据行中的 8 字节引用 -> 实际字符串 */
+/** strL 长字符串查找表：数据行中的 (v, o) 引用 -> 实际字符串 */
 type StrLMap = Map<string, string>
 
 /**
- * 根据 GSO 记录中的 (v, o) 生成数据行里使用的 8 字节 strL 引用键。
+ * 根据 GSO 记录和数据行引用中的 (v, o) 生成稳定查找键。
+ * 117/118/119 在数据行中拆分 8 字节引用的方式不同，使用语义键可以避免
+ * 将不同 release 或字节序下的物理布局泄漏到查找逻辑里。
  */
-function strLKey(fmt: FormatSpec, v: number, o: bigint | number): string {
-  const ob = typeof o === 'bigint' ? o : BigInt(o)
-  if (fmt.release === 117)
-    return (BigInt(v) + (ob << 32n)).toString()
-  return (BigInt(v & 0xFFFF) + ((ob & ((1n << 48n) - 1n)) << 16n)).toString()
+function strLKey(v: number, o: bigint | number): string {
+  return `${v}:${typeof o === 'bigint' ? o.toString() : o}`
+}
+
+/** 读取 Stata 在 strL 行引用中使用的 2/3/4/5/6 字节无符号整数。 */
+function readPackedUInt(buffer: Buffer, offset: number, byteLength: number, byteOrder: ByteOrder): bigint {
+  let out = 0n
+  if (byteOrder === 'LSF') {
+    for (let i = byteLength - 1; i >= 0; i--) {
+      out = (out << 8n) + BigInt(buffer[offset + i])
+    }
+  }
+  else {
+    for (let i = 0; i < byteLength; i++) {
+      out = (out << 8n) + BigInt(buffer[offset + i])
+    }
+  }
+  return out
 }
 
 /**
  * 读取数据行里的 strL 引用。
  */
-function readStrLRef(buffer: Buffer, offset: number, strls: StrLMap, byteOrder: ByteOrder): string {
+function readStrLRef(buffer: Buffer, offset: number, fmt: FormatSpec, strls: StrLMap, byteOrder: ByteOrder): string {
   if (offset + 8 > buffer.length)
     return ''
-  const key = readBigUInt64(buffer, offset, byteOrder).toString()
-  return strls.get(key) || ''
+
+  let v: number
+  let o: bigint
+  if (fmt.release === 117) {
+    v = Number(readPackedUInt(buffer, offset, 4, byteOrder))
+    o = readPackedUInt(buffer, offset + 4, 4, byteOrder)
+  }
+  else if (fmt.release === 118) {
+    v = Number(readPackedUInt(buffer, offset, 2, byteOrder))
+    o = readPackedUInt(buffer, offset + 2, 6, byteOrder)
+  }
+  else {
+    v = Number(readPackedUInt(buffer, offset, 3, byteOrder))
+    o = readPackedUInt(buffer, offset + 3, 5, byteOrder)
+  }
+
+  return strls.get(strLKey(v, o)) || ''
 }
 
 /**
  * 解析 <strls> 段中的 GSO 记录。
  *
- * Stata 117/118 的数据区只保存 strL 引用，真正内容存放在 <strls> 段。
+ * Stata 117/118/119 的数据区只保存 strL 引用，真正内容存放在 <strls> 段。
  * type=130 是文本，type=129 是二进制；二进制用 latin1 做字节保真映射，
  * 以便统计时仍能按完整字节序列计数。
  */
 function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number, byteOrder: ByteOrder): StrLMap {
   const out: StrLMap = new Map()
-  out.set('0', '')
+  out.set(strLKey(0, 0n), '')
   if (tagStart < 0 || tagStart >= buffer.length)
     return out
 
@@ -395,7 +443,7 @@ function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number, byteOrder:
     else {
       value = raw.toString('latin1')
     }
-    out.set(strLKey(fmt, v, o), value)
+    out.set(strLKey(v, o), value)
   }
 
   return out
@@ -431,7 +479,7 @@ function readColumnarRow(
   columns: { [name: string]: ColumnArray },
   missing: { [name: string]: Uint8Array },
   colOffsets: number[],
-  encoding: 'latin1' | 'utf8',
+  fmt: FormatSpec,
   strls: StrLMap,
   byteOrder: ByteOrder,
 ) {
@@ -485,13 +533,13 @@ function readColumnarRow(
         }
       }
       else if (t === 'strL') {
-        const s = readStrLRef(buffer, off, strls, byteOrder)
+        const s = readStrLRef(buffer, off, fmt, strls, byteOrder)
         if (s.length === 0)
           miss[i] = 1
         col[i] = s
       }
       else if (t.startsWith('str')) {
-        const s = readCString(buffer, off, size, encoding)
+        const s = readCString(buffer, off, size, fmt.encoding)
         if (s.length === 0)
           miss[i] = 1
         col[i] = s
@@ -609,8 +657,22 @@ function readObservationCount(buffer: Buffer, fmt: FormatSpec, nOpen: number, by
   return Number(big)
 }
 
-function assertModernDimensions(K: number, N: number): void {
-  if (!Number.isInteger(K) || K < 0 || K > MAX_MODERN_VARIABLES)
+function readVariableCount(buffer: Buffer, fmt: FormatSpec, kOpen: number, byteOrder: ByteOrder): number {
+  return fmt.kBytes === 2 ? readUInt16(buffer, kOpen, byteOrder) : readUInt32(buffer, kOpen, byteOrder)
+}
+
+function formatForModernRelease(releaseNum: number): FormatSpec | null {
+  if (releaseNum === 117)
+    return FMT_117
+  if (releaseNum === 118)
+    return FMT_118
+  if (releaseNum === 119)
+    return FMT_119
+  return null
+}
+
+function assertModernDimensions(fmt: FormatSpec, K: number, N: number): void {
+  if (!Number.isInteger(K) || K < 0 || K > fmt.maxVariables)
     throw new Error(l10n.t('Implausible variable count: {0}', K))
   if (!Number.isSafeInteger(N) || N < 0)
     throw new Error(l10n.t('Implausible observation count: {0}', N))
@@ -627,7 +689,7 @@ function assertDataSectionFits(buffer: Buffer, dataStart: number, rowSize: numbe
 }
 
 /**
- * Stata 117/118 数据解析器。
+ * Stata 117/118/119 数据解析器。
  * 提供预览解析、列式解析和单变量汇总功能。
  */
 export class DtaParser {
@@ -640,31 +702,27 @@ export class DtaParser {
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
       const first10 = buffer.toString('hex', 0, 10)
-      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Only Stata 13+ (formats 117/118) are supported.', first10))
+      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Only Stata 13+ (formats 117/118/119) are supported.', first10))
     }
 
     const releaseMatch = head.match(/<release>(\d+)<\/release>/)
     const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
-    let fmt: FormatSpec
-    if (releaseNum === 117)
-      fmt = FMT_117
-    else if (releaseNum === 118)
-      fmt = FMT_118
-    else
-      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
+    const fmt = formatForModernRelease(releaseNum)
+    if (!fmt)
+      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118, 119.', releaseNum || l10n.t('unknown')))
 
     const byteOrder = readByteOrder(head)
 
     // --- 2. 解析 <K>（变量数量） ---
-    const kOpen = requireTagOpen(buffer, 'K', 2)
-    const K = readUInt16(buffer, kOpen, byteOrder)
+    const kOpen = requireTagOpen(buffer, 'K', fmt.kBytes)
+    const K = readVariableCount(buffer, fmt, kOpen, byteOrder)
 
-    // --- 3. 解析 <N>（观测数）：117 为 4 字节，118 为 8 字节 ---
+    // --- 3. 解析 <N>（观测数）：117 为 4 字节，118/119 为 8 字节 ---
     const nOpen = requireTagOpen(buffer, 'N', fmt.nobsBytes)
     const N = readObservationCount(buffer, fmt, nOpen, byteOrder)
-    assertModernDimensions(K, N)
+    assertModernDimensions(fmt, K, N)
 
-    // --- 4. 解析 <map>：14 个 uint64 LE 偏移量 ---
+    // --- 4. 解析 <map>：14 个 uint64 偏移量 ---
     // map 中的顺序（按 Stata 文档）：
     //  0: <stata_dta>
     //  1: <map>
@@ -856,7 +914,7 @@ export class DtaParser {
                 val = Number.parseFloat(val.toFixed(6))
             }
             else if (type === 'strL') {
-              val = readStrLRef(buffer, offset, strls, byteOrder)
+              val = readStrLRef(buffer, offset, fmt, strls, byteOrder)
             }
             else if (type.startsWith('str')) {
               val = readCString(buffer, offset, size, fmt.encoding)
@@ -881,7 +939,7 @@ export class DtaParser {
 
   /**
    * 使用列式数据为单个变量计算汇总结果。
-   * 格式无关（适用于 117/118 和旧版 113-115）。
+   * 格式无关（适用于 117/118/119 和旧版 113-115）。
    * 如果提供 indices，则只汇总指定行。
    */
   static tabulate(columnar: DtaColumnar, varName: string, indices?: Uint32Array): TabulateResult {
@@ -1168,7 +1226,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls, byteOrder)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt, strls, byteOrder)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -1220,7 +1278,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls, byteOrder)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt, strls, byteOrder)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -1248,7 +1306,7 @@ export class DtaParser {
 
 // ---------- 内部辅助函数 ----------
 
-/** Stata 117/118 文件布局 */
+/** Stata 117/118/119 文件布局 */
 interface Layout {
   /** 文件格式规格 */
   fmt: FormatSpec
@@ -1293,7 +1351,7 @@ function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number, byteOrder: By
 }
 
 /**
- * 解析 Stata 117/118 文件布局
+ * 解析 Stata 117/118/119 文件布局
  */
 function computeLayout(buffer: Buffer): Layout {
   const head = buffer.toString('latin1', 0, 200)
@@ -1314,7 +1372,7 @@ function computeLayout(buffer: Buffer): Layout {
     if (legacyFormats[firstByte]) {
       throw new Error(
         l10n.t(
-          'Unsupported file: {0}. This viewer supports formats 117 (Stata 13) and 118 (Stata 14+). Open the file in Stata and re-save it (`saveold, version(13)` or just `save`) to use it here.',
+          'Unsupported file: {0}. This viewer supports formats 117 (Stata 13), 118 (Stata 14+), and 119 (Stata 15+). Open the file in Stata and re-save it (`saveold, version(13)` or just `save`) to use it here.',
           legacyFormats[firstByte],
         ),
       )
@@ -1323,17 +1381,17 @@ function computeLayout(buffer: Buffer): Layout {
   }
   const releaseMatch = head.match(/<release>(\d+)<\/release>/)
   const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
-  const fmt = releaseNum === 117 ? FMT_117 : releaseNum === 118 ? FMT_118 : null
+  const fmt = formatForModernRelease(releaseNum)
   if (!fmt)
-    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
+    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118, 119.', releaseNum || l10n.t('unknown')))
 
   const byteOrder = readByteOrder(head)
 
-  const kOpen = requireTagOpen(buffer, 'K', 2)
-  const K = readUInt16(buffer, kOpen, byteOrder)
+  const kOpen = requireTagOpen(buffer, 'K', fmt.kBytes)
+  const K = readVariableCount(buffer, fmt, kOpen, byteOrder)
   const nOpen = requireTagOpen(buffer, 'N', fmt.nobsBytes)
   const N = readObservationCount(buffer, fmt, nOpen, byteOrder)
-  assertModernDimensions(K, N)
+  assertModernDimensions(fmt, K, N)
 
   const mapOffsets = readMapOffsets(buffer, byteOrder)
   if (!mapOffsets)
