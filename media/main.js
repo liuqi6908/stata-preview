@@ -173,6 +173,7 @@
   const explorerVariable = document.getElementById('explorer-variable')
   const closeExplorer = document.getElementById('close-explorer')
   const explorerBody = document.getElementById('explorer-body')
+  const modals = [fileInfoModal, usageGuideModal, explorerModal]
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
@@ -556,6 +557,17 @@
   }
 
   /**
+   * 关闭当前打开的弹窗。
+   */
+  function closeOpenModal() {
+    const openModal = modals.find(modal => modal.classList.contains('show'))
+    if (!openModal)
+      return false
+    openModal.classList.remove('show')
+    return true
+  }
+
+  /**
    * 构建表头右键菜单项
    */
   function createHeaderMenuItem(label, action, disabled = false) {
@@ -672,8 +684,20 @@
   })
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape')
+    if (e.key !== 'Escape')
+      return
+
+    if (closeOpenModal()) {
       hideHeaderContextMenu()
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+
+    if (headerContextMenu) {
+      hideHeaderContextMenu()
+      e.preventDefault()
+    }
   })
 
   document.addEventListener('contextmenu', (e) => {
