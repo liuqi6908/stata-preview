@@ -447,7 +447,8 @@
         const cur = sortSpec[existing]
         if (cur.dir === 'asc')
           sortSpec[existing] = { col, dir: 'desc' }
-        else sortSpec.splice(existing, 1)
+        else
+          sortSpec.splice(existing, 1)
       }
     }
     else {
@@ -461,7 +462,8 @@
           sortSpec = [{ col, dir: 'desc' }]
         else if (sortSpec.length === 1 && cur.dir === 'desc')
           sortSpec = []
-        else sortSpec = [{ col, dir: 'asc' }]
+        else
+          sortSpec = [{ col, dir: 'asc' }]
       }
     }
     applySort([...sortSpec])
@@ -1235,7 +1237,8 @@
       html += renderDiscrete(r)
     else if (r.kind === 'continuous')
       html += renderContinuous(r)
-    else html += renderStringTop(r)
+    else
+      html += renderStringTop(r)
     return html
   }
 
@@ -1287,7 +1290,8 @@
       html += `<div class="explorer-section"><h3>${title}</h3>`
       if (chart.type === 'bars')
         html += renderValueBarsSVG(chart.bars)
-      else html += renderHistogramSVG(chart.bins)
+      else
+        html += renderHistogramSVG(chart.bins)
       html += '</div>'
     }
     return html
@@ -1444,7 +1448,8 @@
       startY = e.clientY
       if (resizeMode === 'horizontal')
         startW = sidebar.getBoundingClientRect().width
-      else startH = sidebar.getBoundingClientRect().height
+      else
+        startH = sidebar.getBoundingClientRect().height
       pendingSize = resizeMode === 'horizontal' ? startW : startH
       layoutContainer.classList.add('is-resizing')
       e.preventDefault()

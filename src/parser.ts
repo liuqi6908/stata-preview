@@ -279,7 +279,8 @@ function allocColumn(type: string, size: number, n: number): ColumnArray {
 function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'latin1' | 'utf8'): string {
   let end = offset
   const limit = Math.min(offset + maxLen, buf.length)
-  while (end < limit && buf[end] !== 0) end++
+  while (end < limit && buf[end] !== 0)
+    end++
   return buf.toString(encoding, offset, end)
 }
 
@@ -572,7 +573,8 @@ export class DtaParser {
       fmt = FMT_117
     else if (releaseNum === 118)
       fmt = FMT_118
-    else throw new Error(`Unsupported Stata release: ${releaseNum || 'unknown'}. Supported: 117, 118.`)
+    else
+      throw new Error(`Unsupported Stata release: ${releaseNum || 'unknown'}. Supported: 117, 118.`)
 
     const byteorderMatch = head.match(/<byteorder>(LSF|MSF)<\/byteorder>/)
     const isLE = !byteorderMatch || byteorderMatch[1] === 'LSF'

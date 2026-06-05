@@ -4,6 +4,7 @@ export default antfu(
   {
     rules: {
       'no-console': 'off',
+      'nonblock-statement-body-position': ['error', 'below'],
     },
   },
   {
