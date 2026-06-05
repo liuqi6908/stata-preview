@@ -1005,12 +1005,14 @@
   function renderFileInfo() {
     const variableCount = meta ? meta.headers.length : 0
     const release = meta && meta.release ? meta.release : bootstrap.l10n.Unknown
+    const byteOrder = meta && meta.byteOrder ? meta.byteOrder : bootstrap.l10n.Unknown
     const details = [
       [bootstrap.l10n.FileName, fileInfoState.fileName],
       [bootstrap.l10n.FilePath, fileInfoState.filePath],
       [bootstrap.l10n.FileSize, fmtBytes(fileInfoState.fileSize)],
       [bootstrap.l10n.LastUpdated, fileInfoState.lastModified],
       [bootstrap.l10n.StataRelease, release],
+      [bootstrap.l10n.ByteOrder, byteOrder],
       [bootstrap.l10n.Rows, fmtInt(totalAll)],
       [bootstrap.l10n.VariablesCount, fmtInt(variableCount)],
     ]

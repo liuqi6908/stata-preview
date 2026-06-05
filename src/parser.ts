@@ -51,6 +51,8 @@ export interface DtaMeta {
   nobs: number
   /** 解析后的 Stata release 标记 */
   release: 117 | 118
+  /** 文件字节序 */
+  byteOrder: ByteOrder
 }
 
 /** 列式数据集 */
@@ -161,6 +163,10 @@ const MAX_DISCRETE_CATEGORIES = 20
 const MAX_INT_BAR_VALUES = 200
 /** 连续变量直方图分箱数 */
 const HISTOGRAM_BINS = 30
+/** Stata 现代格式变量数量上限 */
+const MAX_MODERN_VARIABLES = 32767
+
+export type ByteOrder = 'LSF' | 'MSF'
 
 /**
  * Stata 117/118 文件头部格式规格。
@@ -181,6 +187,34 @@ interface FormatSpec {
   nobsBytes: number
   /** 字符串编码 */
   encoding: 'latin1' | 'utf8'
+}
+
+function readUInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset)
+}
+
+function readInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readInt16LE(offset) : buf.readInt16BE(offset)
+}
+
+function readUInt32(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset)
+}
+
+function readInt32(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readInt32LE(offset) : buf.readInt32BE(offset)
+}
+
+function readBigUInt64(buf: Buffer, offset: number, byteOrder: ByteOrder): bigint {
+  return byteOrder === 'LSF' ? buf.readBigUInt64LE(offset) : buf.readBigUInt64BE(offset)
+}
+
+function readFloat(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readFloatLE(offset) : buf.readFloatBE(offset)
+}
+
+function readDouble(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readDoubleLE(offset) : buf.readDoubleBE(offset)
 }
 
 /** Stata 117 文件规格 */
@@ -301,10 +335,10 @@ function strLKey(fmt: FormatSpec, v: number, o: bigint | number): string {
 /**
  * 读取数据行里的 strL 引用。
  */
-function readStrLRef(buffer: Buffer, offset: number, strls: StrLMap): string {
+function readStrLRef(buffer: Buffer, offset: number, strls: StrLMap, byteOrder: ByteOrder): string {
   if (offset + 8 > buffer.length)
     return ''
-  const key = buffer.readBigUInt64LE(offset).toString()
+  const key = readBigUInt64(buffer, offset, byteOrder).toString()
   return strls.get(key) || ''
 }
 
@@ -315,7 +349,7 @@ function readStrLRef(buffer: Buffer, offset: number, strls: StrLMap): string {
  * type=130 是文本，type=129 是二进制；二进制用 latin1 做字节保真映射，
  * 以便统计时仍能按完整字节序列计数。
  */
-function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number): StrLMap {
+function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number, byteOrder: ByteOrder): StrLMap {
   const out: StrLMap = new Map()
   out.set('0', '')
   if (tagStart < 0 || tagStart >= buffer.length)
@@ -336,13 +370,13 @@ function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number): StrLMap {
     if (off + minHeader > end)
       break
 
-    const v = buffer.readUInt32LE(off)
+    const v = readUInt32(buffer, off, byteOrder)
     off += 4
-    const o = fmt.release === 117 ? BigInt(buffer.readUInt32LE(off)) : buffer.readBigUInt64LE(off)
+    const o = fmt.release === 117 ? BigInt(readUInt32(buffer, off, byteOrder)) : readBigUInt64(buffer, off, byteOrder)
     off += fmt.release === 117 ? 4 : 8
     const type = buffer.readUInt8(off)
     off += 1
-    const len = buffer.readUInt32LE(off)
+    const len = readUInt32(buffer, off, byteOrder)
     off += 4
 
     if (off + len > end)
@@ -399,6 +433,7 @@ function readColumnarRow(
   colOffsets: number[],
   encoding: 'latin1' | 'utf8',
   strls: StrLMap,
+  byteOrder: ByteOrder,
 ) {
   const K = headers.length
   for (let j = 0; j < K; j++) {
@@ -416,21 +451,21 @@ function readColumnarRow(
           col[i] = v
       }
       else if (t === 'int') {
-        const v = buffer.readInt16LE(off)
+        const v = readInt16(buffer, off, byteOrder)
         if (isMissingNumeric(v, 'int'))
           miss[i] = 1
         else
           col[i] = v
       }
       else if (t === 'long') {
-        const v = buffer.readInt32LE(off)
+        const v = readInt32(buffer, off, byteOrder)
         if (isMissingNumeric(v, 'long'))
           miss[i] = 1
         else
           col[i] = v
       }
       else if (t === 'float') {
-        const v = buffer.readFloatLE(off)
+        const v = readFloat(buffer, off, byteOrder)
         if (isMissingNumeric(v, 'float')) {
           miss[i] = 1
           col[i] = Number.NaN
@@ -440,7 +475,7 @@ function readColumnarRow(
         }
       }
       else if (t === 'double') {
-        const v = buffer.readDoubleLE(off)
+        const v = readDouble(buffer, off, byteOrder)
         if (isMissingNumeric(v, 'double')) {
           miss[i] = 1
           col[i] = Number.NaN
@@ -450,7 +485,7 @@ function readColumnarRow(
         }
       }
       else if (t === 'strL') {
-        const s = readStrLRef(buffer, off, strls)
+        const s = readStrLRef(buffer, off, strls, byteOrder)
         if (s.length === 0)
           miss[i] = 1
         col[i] = s
@@ -493,16 +528,16 @@ function findTagClose(buf: Buffer, tag: string, fromOffset: number = 0): number 
 }
 
 /**
- * 读取 <map> 中的 14 个 uint64 LE 偏移量。
+ * 读取 <map> 中的 14 个 uint64 偏移量。
  */
-function readMapOffsets(buffer: Buffer): number[] | null {
+function readMapOffsets(buffer: Buffer, byteOrder: ByteOrder): number[] | null {
   const mapOpen = findTagOpen(buffer, 'map')
   if (mapOpen === -1 || mapOpen + 14 * 8 > buffer.length)
     return null
 
   const offsets: number[] = []
   for (let i = 0; i < 14; i++) {
-    offsets.push(Number(buffer.readBigUInt64LE(mapOpen + i * 8)))
+    offsets.push(Number(readBigUInt64(buffer, mapOpen + i * 8, byteOrder)))
   }
   return offsets
 }
@@ -550,6 +585,47 @@ function sliceMappedTagContent(buffer: Buffer, mapOffsets: number[] | null, mapI
   return { start, end }
 }
 
+function requireTagOpen(buffer: Buffer, tag: string, bytesNeeded: number): number {
+  const open = findTagOpen(buffer, tag)
+  if (open === -1)
+    throw new Error(l10n.t('Missing <{0}> tag.', tag))
+  if (open + bytesNeeded > buffer.length)
+    throw new Error(l10n.t('The <{0}> tag is truncated.', tag))
+  return open
+}
+
+function readByteOrder(head: string): ByteOrder {
+  const byteorderMatch = head.match(/<byteorder>(LSF|MSF)<\/byteorder>/)
+  return byteorderMatch?.[1] === 'MSF' ? 'MSF' : 'LSF'
+}
+
+function readObservationCount(buffer: Buffer, fmt: FormatSpec, nOpen: number, byteOrder: ByteOrder): number {
+  if (fmt.nobsBytes === 4)
+    return readUInt32(buffer, nOpen, byteOrder)
+
+  const big = readBigUInt64(buffer, nOpen, byteOrder)
+  if (big > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new Error(l10n.t('Observation count is too large to load: {0}', big.toString()))
+  return Number(big)
+}
+
+function assertModernDimensions(K: number, N: number): void {
+  if (!Number.isInteger(K) || K < 0 || K > MAX_MODERN_VARIABLES)
+    throw new Error(l10n.t('Implausible variable count: {0}', K))
+  if (!Number.isSafeInteger(N) || N < 0)
+    throw new Error(l10n.t('Implausible observation count: {0}', N))
+}
+
+function assertDataSectionFits(buffer: Buffer, dataStart: number, rowSize: number, N: number): void {
+  if (dataStart < 0 || dataStart > buffer.length)
+    throw new Error(l10n.t('DTA metadata is inconsistent: invalid data section offset.'))
+  const dataBytes = rowSize * N
+  if (!Number.isSafeInteger(dataBytes))
+    throw new Error(l10n.t('DTA data section is too large to load: {0} rows × {1} bytes per row.', N, rowSize))
+  if (dataStart + dataBytes > buffer.length)
+    throw new Error(l10n.t('DTA metadata is inconsistent: data section is shorter than expected.'))
+}
+
 /**
  * Stata 117/118 数据解析器。
  * 提供预览解析、列式解析和单变量汇总功能。
@@ -577,30 +653,16 @@ export class DtaParser {
     else
       throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
 
-    const byteorderMatch = head.match(/<byteorder>(LSF|MSF)<\/byteorder>/)
-    const isLE = !byteorderMatch || byteorderMatch[1] === 'LSF'
-    if (!isLE)
-      throw new Error(l10n.t('MSF (big-endian) Stata files are not supported yet.'))
+    const byteOrder = readByteOrder(head)
 
     // --- 2. 解析 <K>（变量数量） ---
-    const kOpen = findTagOpen(buffer, 'K')
-    if (kOpen === -1)
-      throw new Error(l10n.t('Missing <{0}> tag.', 'K'))
-    const K = buffer.readUInt16LE(kOpen)
+    const kOpen = requireTagOpen(buffer, 'K', 2)
+    const K = readUInt16(buffer, kOpen, byteOrder)
 
     // --- 3. 解析 <N>（观测数）：117 为 4 字节，118 为 8 字节 ---
-    const nOpen = findTagOpen(buffer, 'N')
-    if (nOpen === -1)
-      throw new Error(l10n.t('Missing <{0}> tag.', 'N'))
-    let N: number
-    if (fmt.nobsBytes === 4) {
-      N = buffer.readUInt32LE(nOpen)
-    }
-    else {
-      // Stata 的观测数通常可安全转换为 JS number。
-      const big = buffer.readBigUInt64LE(nOpen)
-      N = Number(big)
-    }
+    const nOpen = requireTagOpen(buffer, 'N', fmt.nobsBytes)
+    const N = readObservationCount(buffer, fmt, nOpen, byteOrder)
+    assertModernDimensions(K, N)
 
     // --- 4. 解析 <map>：14 个 uint64 LE 偏移量 ---
     // map 中的顺序（按 Stata 文档）：
@@ -618,7 +680,7 @@ export class DtaParser {
     // 11: <value_labels>
     // 12: </stata_dta>  结束标记
     // 13: 文件结束
-    const mapOffsets = readMapOffsets(buffer)
+    const mapOffsets = readMapOffsets(buffer, byteOrder)
     if (!mapOffsets)
       throw new Error(l10n.t('Missing <{0}> tag.', 'map'))
 
@@ -633,7 +695,7 @@ export class DtaParser {
     const types: string[] = []
     const typeSizes: number[] = []
     for (let j = 0; j < K; j++) {
-      const code = buffer.readUInt16LE(vt.start + j * 2)
+      const code = readUInt16(buffer, vt.start + j * 2, byteOrder)
       const dec = decodeTypeCode(code)
       if (!dec) {
         // 未知错误：跳过变量但保持对齐方式，将其视为字节处理
@@ -700,9 +762,9 @@ export class DtaParser {
 
         if (off + 8 > blockEnd)
           continue
-        const n = buffer.readInt32LE(off)
+        const n = readInt32(buffer, off, byteOrder)
         off += 4
-        const txtlen = buffer.readInt32LE(off)
+        const txtlen = readInt32(buffer, off, byteOrder)
         off += 4
 
         if (n < 0 || n > 1_000_000)
@@ -712,12 +774,12 @@ export class DtaParser {
 
         const offs: number[] = []
         for (let k = 0; k < n; k++) {
-          offs.push(buffer.readInt32LE(off))
+          offs.push(readInt32(buffer, off, byteOrder))
           off += 4
         }
         const vals: number[] = []
         for (let k = 0; k < n; k++) {
-          vals.push(buffer.readInt32LE(off))
+          vals.push(readInt32(buffer, off, byteOrder))
           off += 4
         }
         const txtStart = off
@@ -750,7 +812,7 @@ export class DtaParser {
     }
     catch { /* 跳过值标签绑定 */ }
 
-    const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'))
+    const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'), byteOrder)
 
     // --- 9. <data>: 读取行数据 ---
     const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
@@ -758,6 +820,7 @@ export class DtaParser {
       throw new Error(l10n.t('Missing <{0}> tag.', 'data'))
     const dataContentStart = dataTagStart + '<data>'.length
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
+    assertDataSectionFits(buffer, dataContentStart, rowSize, N)
     // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理。
     const limitRows = Math.min(N, 1000)
     const rows: any[][] = []
@@ -777,23 +840,23 @@ export class DtaParser {
               val = buffer.readInt8(offset)
             }
             else if (type === 'int') {
-              val = buffer.readInt16LE(offset)
+              val = readInt16(buffer, offset, byteOrder)
             }
             else if (type === 'long') {
-              val = buffer.readInt32LE(offset)
+              val = readInt32(buffer, offset, byteOrder)
             }
             else if (type === 'float') {
-              val = buffer.readFloatLE(offset)
+              val = readFloat(buffer, offset, byteOrder)
               if (Number.isFinite(val))
                 val = Number.parseFloat(val.toFixed(6))
             }
             else if (type === 'double') {
-              val = buffer.readDoubleLE(offset)
+              val = readDouble(buffer, offset, byteOrder)
               if (Number.isFinite(val))
                 val = Number.parseFloat(val.toFixed(6))
             }
             else if (type === 'strL') {
-              val = readStrLRef(buffer, offset, strls)
+              val = readStrLRef(buffer, offset, strls, byteOrder)
             }
             else if (type.startsWith('str')) {
               val = readCString(buffer, offset, size, fmt.encoding)
@@ -1090,8 +1153,8 @@ export class DtaParser {
       return parseColumnarLegacyAsync(buffer, opts)
     }
     const layout = computeLayout(buffer)
-    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels } = layout
-    const labels: string[] = readVarLabels(buffer, fmt, K)
+    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels, byteOrder } = layout
+    const labels: string[] = readVarLabels(buffer, fmt, K, byteOrder)
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
 
     const { columns, missing, colOffsets } = createColumnarStorage(headers, types, typeSizes, N)
@@ -1105,7 +1168,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls, byteOrder)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -1126,6 +1189,7 @@ export class DtaParser {
         valueLabels,
         nobs: N,
         release: fmt.release,
+        byteOrder,
       },
       columns,
       missing,
@@ -1140,8 +1204,8 @@ export class DtaParser {
       return parseColumnarLegacy(buffer)
     }
     const layout = computeLayout(buffer)
-    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels } = layout
-    const labels: string[] = readVarLabels(buffer, fmt, K)
+    const { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels, byteOrder } = layout
+    const labels: string[] = readVarLabels(buffer, fmt, K, byteOrder)
 
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
 
@@ -1156,7 +1220,7 @@ export class DtaParser {
       if (rowOff + rowSize > buffer.length)
         break
 
-      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls)
+      readColumnarRow(buffer, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, fmt.encoding, strls, byteOrder)
 
       if (onProgress && (i + 1) % progressStep === 0) {
         onProgress(i + 1, N)
@@ -1174,6 +1238,7 @@ export class DtaParser {
         valueLabels,
         nobs: N,
         release: fmt.release,
+        byteOrder,
       },
       columns,
       missing,
@@ -1203,16 +1268,18 @@ interface Layout {
   strls: StrLMap
   /** 变量到值标签表的映射 */
   valueLabels: { [varName: string]: { [v: number]: string } }
+  /** 文件字节序 */
+  byteOrder: ByteOrder
 }
 
 /**
  * 读取变量标签列表
  */
-function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number): string[] {
+function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number, byteOrder: ByteOrder): string[] {
   // 使用 map 重新查找标签偏移（开销小；parseColumnar 仅调用一次）。
   let vl: { start: number, end: number }
   try {
-    vl = sliceMappedTagContent(buffer, readMapOffsets(buffer), 7, 'variable_labels')
+    vl = sliceMappedTagContent(buffer, readMapOffsets(buffer, byteOrder), 7, 'variable_labels')
   }
   catch {
     return Array.from<string>({ length: K }).fill('')
@@ -1260,14 +1327,15 @@ function computeLayout(buffer: Buffer): Layout {
   if (!fmt)
     throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118.', releaseNum || l10n.t('unknown')))
 
-  const kOpen = findTagOpen(buffer, 'K')
-  const K = buffer.readUInt16LE(kOpen)
-  const nOpen = findTagOpen(buffer, 'N')
-  const N = fmt.nobsBytes === 4
-    ? buffer.readUInt32LE(nOpen)
-    : Number(buffer.readBigUInt64LE(nOpen))
+  const byteOrder = readByteOrder(head)
 
-  const mapOffsets = readMapOffsets(buffer)
+  const kOpen = requireTagOpen(buffer, 'K', 2)
+  const K = readUInt16(buffer, kOpen, byteOrder)
+  const nOpen = requireTagOpen(buffer, 'N', fmt.nobsBytes)
+  const N = readObservationCount(buffer, fmt, nOpen, byteOrder)
+  assertModernDimensions(K, N)
+
+  const mapOffsets = readMapOffsets(buffer, byteOrder)
   if (!mapOffsets)
     throw new Error(l10n.t('Missing <{0}> tag.', 'map'))
 
@@ -1279,7 +1347,7 @@ function computeLayout(buffer: Buffer): Layout {
   const types: string[] = []
   const typeSizes: number[] = []
   for (let j = 0; j < K; j++) {
-    const code = buffer.readUInt16LE(vt.start + j * 2)
+    const code = readUInt16(buffer, vt.start + j * 2, byteOrder)
     const dec = decodeTypeCode(code)
     types.push(dec ? dec.type : 'byte')
     typeSizes.push(dec ? dec.size : 1)
@@ -1320,9 +1388,9 @@ function computeLayout(buffer: Buffer): Layout {
       off += fmt.valueLabelNameLen + 3
       if (off + 8 > blockEnd)
         continue
-      const n = buffer.readInt32LE(off)
+      const n = readInt32(buffer, off, byteOrder)
       off += 4
-      const txtlen = buffer.readInt32LE(off)
+      const txtlen = readInt32(buffer, off, byteOrder)
       off += 4
       if (n < 0 || n > 1_000_000)
         continue
@@ -1330,12 +1398,12 @@ function computeLayout(buffer: Buffer): Layout {
         continue
       const offs: number[] = []
       for (let k = 0; k < n; k++) {
-        offs.push(buffer.readInt32LE(off))
+        offs.push(readInt32(buffer, off, byteOrder))
         off += 4
       }
       const vals: number[] = []
       for (let k = 0; k < n; k++) {
-        vals.push(buffer.readInt32LE(off))
+        vals.push(readInt32(buffer, off, byteOrder))
         off += 4
       }
       const txtStart = off
@@ -1364,7 +1432,9 @@ function computeLayout(buffer: Buffer): Layout {
   if (dataTagStart === -1)
     throw new Error(l10n.t('Missing <{0}> tag.', 'data'))
   const dataStart = dataTagStart + '<data>'.length
-  const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'))
+  const rowSize = typeSizes.reduce((a, b) => a + b, 0)
+  assertDataSectionFits(buffer, dataStart, rowSize, N)
+  const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'), byteOrder)
 
-  return { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels }
+  return { fmt, K, N, headers, types, typeSizes, dataStart, strls, valueLabels, byteOrder }
 }

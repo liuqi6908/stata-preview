@@ -4,7 +4,7 @@
  * 支持 113（Stata 8/9）、114（Stata 10/11）和 115（Stata 12）。
  * 这些格式早于 XML 封装的 117/118，使用固定大小的二进制头部。
  *
- * 文件布局（LSF 字节序；当前不支持 MSF）：
+ * 文件布局（LSF/MSF 字节序）：
  *   header（109 字节）：
  *     0        ds_format     (113 | 114 | 115)
  *     1        byteorder     (1 = HILO/MSF, 2 = LOLO/LSF)
@@ -33,6 +33,28 @@ import type { ColumnArray, DtaColumnar } from './parser'
 import { l10n } from 'vscode'
 
 // ---------- 辅助函数 ----------
+
+type ByteOrder = 'LSF' | 'MSF'
+
+function readUInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset)
+}
+
+function readInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readInt16LE(offset) : buf.readInt16BE(offset)
+}
+
+function readInt32(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readInt32LE(offset) : buf.readInt32BE(offset)
+}
+
+function readFloat(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readFloatLE(offset) : buf.readFloatBE(offset)
+}
+
+function readDouble(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
+  return byteOrder === 'LSF' ? buf.readDoubleLE(offset) : buf.readDoubleBE(offset)
+}
 
 /**
  * 读取 NUL 终止字符串
@@ -132,6 +154,7 @@ function readLegacyRow(
   columns: { [name: string]: ColumnArray },
   missing: { [name: string]: Uint8Array },
   colOffsets: number[],
+  byteOrder: ByteOrder,
 ) {
   const nvar = headers.length
   for (let j = 0; j < nvar; j++) {
@@ -151,7 +174,7 @@ function readLegacyRow(
           break
         }
         case 'int': {
-          const v = buf.readInt16LE(off)
+          const v = readInt16(buf, off, byteOrder)
           if (isMissingNumeric(v, 'int'))
             miss[i] = 1
           else
@@ -159,7 +182,7 @@ function readLegacyRow(
           break
         }
         case 'long': {
-          const v = buf.readInt32LE(off)
+          const v = readInt32(buf, off, byteOrder)
           if (isMissingNumeric(v, 'long'))
             miss[i] = 1
           else
@@ -167,7 +190,7 @@ function readLegacyRow(
           break
         }
         case 'float': {
-          const v = buf.readFloatLE(off)
+          const v = readFloat(buf, off, byteOrder)
           if (isMissingNumeric(v, 'float')) {
             miss[i] = 1
             col[i] = Number.NaN
@@ -178,7 +201,7 @@ function readLegacyRow(
           break
         }
         case 'double': {
-          const v = buf.readDoubleLE(off)
+          const v = readDouble(buf, off, byteOrder)
           if (isMissingNumeric(v, 'double')) {
             miss[i] = 1
             col[i] = Number.NaN
@@ -220,6 +243,7 @@ interface LegacyLayout {
   dataStart: number
   valueLabelsStart: number
   valueLabels: { [varName: string]: { [v: number]: string } }
+  byteOrder: ByteOrder
 }
 
 /**
@@ -231,17 +255,22 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
     throw new Error(l10n.t('Not a legacy Stata dta (format {0}).', ds))
   }
   const release = ds
-  const byteorder = buf[1]
-  if (byteorder !== 2) {
-    throw new Error(l10n.t('Big-endian (MSF) legacy Stata files are not supported.'))
-  }
+  const byteorderMarker = buf[1]
+  let byteOrder: ByteOrder
+  if (byteorderMarker === 1)
+    byteOrder = 'MSF'
+  else if (byteorderMarker === 2)
+    byteOrder = 'LSF'
+  else
+    throw new Error(l10n.t('Unexpected byte order marker: {0}', byteorderMarker))
+
   const filetype = buf[2]
   if (filetype !== 1) {
     throw new Error(l10n.t('Unexpected filetype byte: {0}', filetype))
   }
 
-  const nvar = buf.readUInt16LE(4)
-  const nobs = buf.readInt32LE(6)
+  const nvar = readUInt16(buf, 4, byteOrder)
+  const nobs = readInt32(buf, 6, byteOrder)
   if (nobs < 0 || nobs > 1e9)
     throw new Error(l10n.t('Implausible nobs: {0}', nobs))
   if (nvar < 0 || nvar > 32767)
@@ -293,7 +322,7 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止
   while (off + 5 <= buf.length) {
     const tag = buf[off]
-    const len = buf.readInt32LE(off + 1)
+    const len = readInt32(buf, off + 1, byteOrder)
     if (tag === 0 && len === 0) {
       off += 5
       break
@@ -306,6 +335,8 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   const rowSize = typeSizes.reduce((a, b) => a + b, 0)
   const dataStart = off
   const dataEnd = dataStart + nobs * rowSize
+  if (!Number.isSafeInteger(dataEnd) || dataEnd > buf.length)
+    throw new Error(l10n.t('DTA metadata is inconsistent: data section is shorter than expected.'))
 
   // 值标签表位于数据块之后，可选
   const valueLabels: { [name: string]: { [v: number]: string } } = {}
@@ -322,16 +353,16 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
     //   char[txtlen] txt
     while (vlOff + 4 + 33 + 3 + 4 + 4 <= buf.length) {
       // 不同版本对 tableLen 的解释略有差异，这里以 n/txtlen 校验为准
-      const tableLen = buf.readInt32LE(vlOff)
+      const tableLen = readInt32(buf, vlOff, byteOrder)
       vlOff += 4
       const lblName = readCString(buf, vlOff, 33)
       vlOff += 33
       vlOff += 3
       if (vlOff + 8 > buf.length)
         break
-      const n = buf.readInt32LE(vlOff)
+      const n = readInt32(buf, vlOff, byteOrder)
       vlOff += 4
-      const txtlen = buf.readInt32LE(vlOff)
+      const txtlen = readInt32(buf, vlOff, byteOrder)
       vlOff += 4
       if (n < 0 || n > 1_000_000 || txtlen < 0 || txtlen > 100_000_000)
         break
@@ -340,12 +371,12 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
 
       const offs: number[] = []
       for (let k = 0; k < n; k++) {
-        offs.push(buf.readInt32LE(vlOff))
+        offs.push(readInt32(buf, vlOff, byteOrder))
         vlOff += 4
       }
       const vals: number[] = []
       for (let k = 0; k < n; k++) {
-        vals.push(buf.readInt32LE(vlOff))
+        vals.push(readInt32(buf, vlOff, byteOrder))
         vlOff += 4
       }
       const txtStart = vlOff
@@ -386,6 +417,7 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
     dataStart,
     valueLabelsStart: dataEnd,
     valueLabels: varValueLabels,
+    byteOrder,
   }
 }
 
@@ -403,7 +435,7 @@ export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
     const rowOff = dataStart + i * rowSize
     if (rowOff + rowSize > buf.length)
       break
-    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets)
+    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, layout.byteOrder)
   }
 
   return {
@@ -416,6 +448,7 @@ export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
       nobs,
       // 下游按 117/118 分支处理，这里用 117 标记列式结果。
       release: 117,
+      byteOrder: layout.byteOrder,
     },
     columns,
     missing,
@@ -448,7 +481,7 @@ export async function parseColumnarLegacyAsync(
     const rowOff = dataStart + i * rowSize
     if (rowOff + rowSize > buf.length)
       break
-    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets)
+    readLegacyRow(buf, rowOff, i, headers, types, typeSizes, columns, missing, colOffsets, layout.byteOrder)
     if (onProgress && (i + 1) % progressStep === 0)
       onProgress(i + 1, nobs)
     if ((i + 1) % yieldEvery === 0)
@@ -466,6 +499,7 @@ export async function parseColumnarLegacyAsync(
       valueLabels: layout.valueLabels,
       nobs,
       release: 117,
+      byteOrder: layout.byteOrder,
     },
     columns,
     missing,

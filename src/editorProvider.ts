@@ -483,6 +483,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         types: meta.types,
         nobs: meta.nobs,
         release: meta.release,
+        byteOrder: meta.byteOrder,
       },
       page: initialPage,
       fileInfo,
@@ -798,7 +799,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
                 <ul>
                   <li>${l10n.t('Refresh data to re-read the current .dta file from disk.')}</li>
                   <li>${l10n.t('Export data as CSV or Excel using the current filter, sort order, and visible columns.')}</li>
-                  <li>${l10n.t('Open file information to view path, size, update time, Stata release, row count, and variable count.')}</li>
+                  <li>${l10n.t('Open file information to view path, size, update time, Stata release, byte order, row count, and variable count.')}</li>
                 </ul>
               </section>
             </div>
@@ -857,6 +858,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
               FileSize: l10n.t('File size'),
               LastUpdated: l10n.t('Last updated'),
               StataRelease: l10n.t('Stata release'),
+              ByteOrder: l10n.t('Byte order'),
               Rows: l10n.t('Rows'),
               VariablesCount: l10n.t('Variables'),
               Unknown: l10n.t('Unknown'),
