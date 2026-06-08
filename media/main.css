@@ -574,6 +574,16 @@ table {
       width: 100%;
       height: var(--sidebar-height);
       min-height: 120px;
+
+      & #sidebar-position {
+        & .sidebar-position-bottom {
+          display: none;
+        }
+
+        & .sidebar-position-right {
+          display: flex;
+        }
+      }
     }
   }
 
@@ -801,6 +811,23 @@ table {
       margin: 0;
       font-size: 14px;
       font-weight: 600;
+    }
+
+    & #sidebar-position {
+      flex-shrink: 0;
+
+      & .sidebar-position-icon {
+        align-items: center;
+        justify-content: center;
+      }
+
+      & .sidebar-position-bottom {
+        display: flex;
+      }
+
+      & .sidebar-position-right {
+        display: none;
+      }
     }
   }
 

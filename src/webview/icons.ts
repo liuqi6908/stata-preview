@@ -14,6 +14,8 @@ export type WebviewIcon
     | 'prevPage'
     | 'nextPage'
     | 'lastPage'
+    | 'panelBottom'
+    | 'panelRight'
     | 'close'
 
 /**
@@ -50,6 +52,10 @@ function iconPath(name: WebviewIcon): string {
       return 'm9 6l6 6l-6 6'
     case 'lastPage':
       return 'm7 7l5 5l-5 5m6-10l5 5l-5 5'
+    case 'panelBottom':
+      return 'M21 18a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3m9 3v8m-3-3l3 3l3-3'
+    case 'panelRight':
+      return 'M18 3a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3M3 18V6a3 3 0 1 1 6 0v12a3 3 0 0 1-6 0m6-6h8m-3 3l3-3l-3-3'
     case 'close':
       return 'M18 6L6 18M6 6l12 12'
   }

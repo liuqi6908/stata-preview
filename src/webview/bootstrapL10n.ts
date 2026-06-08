@@ -35,6 +35,8 @@ export function getWebviewBootstrapL10n() {
     FileInformation: l10n.t('File information'),
     ShowVariablesPanel: l10n.t('Show variables panel'),
     HideVariablesPanel: l10n.t('Hide variables panel'),
+    MoveVariablesPanelToBottom: l10n.t('Move variables panel to bottom'),
+    MoveVariablesPanelToRight: l10n.t('Move variables panel to right'),
     filterForTabulationPlaceholder: l10n.t('Filter for this tabulation, e.g. edad == 30 & treatment == 1'),
     combineWithGeneralFilter: l10n.t('Combine with general filter'),
     TabulatingScope: l10n.t('Tabulating {0} of {1} rows.'),

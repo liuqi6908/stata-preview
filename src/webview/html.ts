@@ -200,7 +200,10 @@ function renderSidebar(): string {
     <div id="sidebar">
       <div id="sidebar-header">
         <h3>${l10n.t('Variables')}</h3>
-        <button id="sidebar-position" title="${l10n.t('Switch sidebar position')}">${l10n.t('Position')}</button>
+        <button id="sidebar-position" class="icon" title="${l10n.t('Move variables panel to bottom')}">
+          <span class="sidebar-position-icon sidebar-position-bottom">${icon('panelBottom')}</span>
+          <span class="sidebar-position-icon sidebar-position-right">${icon('panelRight')}</span>
+        </button>
       </div>
       <div id="sidebar-search">
         <input id="variable-search" type="text" placeholder="${l10n.t('Filter variables...')}">

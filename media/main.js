@@ -179,6 +179,7 @@
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
   updateSidebarToggle()
+  updateSidebarPositionButton()
 
   /**
    * 隐藏初始加载界面
@@ -686,6 +687,15 @@
   }
 
   /**
+   * 同步变量面板位置按钮提示。
+   */
+  function updateSidebarPositionButton() {
+    sidebarPositionBtn.title = sidebarPosition === 'right'
+      ? bootstrap.l10n.MoveVariablesPanelToBottom
+      : bootstrap.l10n.MoveVariablesPanelToRight
+  }
+
+  /**
    * 导出当前表格视图
    */
   async function exportTableData(format) {
@@ -1090,6 +1100,7 @@
   sidebarPositionBtn.addEventListener('click', () => {
     sidebarPosition = sidebarPosition === 'right' ? 'bottom' : 'right'
     layoutContainer.classList.toggle('sidebar-bottom', sidebarPosition === 'bottom')
+    updateSidebarPositionButton()
   })
 
   // ---------- 文件信息弹窗 ----------
