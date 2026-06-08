@@ -134,6 +134,7 @@
   // 网格器
   const gridContainer = document.getElementById('grid-container')
   const gridOverlay = document.getElementById('grid-overlay')
+  const dataTable = document.getElementById('data-table')
   const tableHead = document.getElementById('table-head')
   const tableBody = document.getElementById('table-body')
 
@@ -727,18 +728,67 @@
   }
 
   /**
+   * 获取当前列宽。
+   */
+  function getColumnWidth(i) {
+    const header = meta.headers[i]
+    return colWidths[header] ?? defaultColWidth(i)
+  }
+
+  /**
+   * 获取当前可见列布局。
+   */
+  function getVisibleColumnSpecs() {
+    const specs = []
+    for (let i = 0; i < meta.headers.length; i++) {
+      if (!visibleColumns.has(i))
+        continue
+      specs.push({
+        index: i,
+        header: meta.headers[i],
+        width: getColumnWidth(i),
+      })
+    }
+    return specs
+  }
+
+  /**
+   * 同步表格列宽和总宽度。
+   *
+   * 少列时不能依赖 table width: 100%，否则浏览器会拉伸列宽，
+   * 导致拖拽手柄位置和鼠标位置不一致。
+   */
+  function syncTableColumnLayout(specs = getVisibleColumnSpecs()) {
+    let colgroup = dataTable.querySelector('colgroup')
+    if (!colgroup) {
+      colgroup = document.createElement('colgroup')
+      dataTable.insertBefore(colgroup, dataTable.firstChild)
+    }
+
+    const totalWidth = specs.reduce((sum, spec) => sum + spec.width, 0)
+    colgroup.innerHTML = ''
+    specs.forEach((spec) => {
+      const col = document.createElement('col')
+      col.dataset.col = spec.header
+      col.style.width = `${spec.width}px`
+      colgroup.appendChild(col)
+    })
+
+    dataTable.style.width = `${Math.max(1, totalWidth)}px`
+  }
+
+  /**
    * 渲染表头
    */
   function renderHeader() {
     tableHead.innerHTML = ''
     const tr = document.createElement('tr')
-    meta.headers.forEach((header, i) => {
-      if (!visibleColumns.has(i))
-        return
+    const specs = getVisibleColumnSpecs()
+    syncTableColumnLayout(specs)
+    specs.forEach(({ header, index: i, width }) => {
       const th = document.createElement('th')
       th.dataset.col = header
-      const w = colWidths[header] ?? defaultColWidth(i)
-      th.style.width = `${w}px`
+      th.style.width = `${width}px`
       const sortInfo = sortSpec.findIndex(s => s.col === header)
       const sortDir = sortInfo >= 0 ? sortSpec[sortInfo].dir : null
       const sortIdx = sortInfo >= 0 && sortSpec.length > 1 ? sortInfo + 1 : null
@@ -769,25 +819,11 @@
   }
 
   /**
-   * 计算当前可见列数
-   */
-  function visibleColCount() {
-    let n = 0
-    for (let c = 0; c < meta.headers.length; c++) {
-      if (visibleColumns.has(c))
-        n++
-    }
-    return n
-  }
-
-  /**
    * 构建单行 DOM
    */
-  function buildRow(rowData) {
+  function buildRow(rowData, specs) {
     const tr = document.createElement('tr')
-    for (let c = 0; c < meta.headers.length; c++) {
-      if (!visibleColumns.has(c))
-        continue
+    for (const { index: c } of specs) {
       const td = document.createElement('td')
       const rawVal = rowData[c]
       if (rawVal === null || rawVal === undefined) {
@@ -822,12 +858,14 @@
    */
   function renderBody() {
     const total = currentPageRows.length
+    const specs = getVisibleColumnSpecs()
+    syncTableColumnLayout(specs)
     if (total === 0) {
       tableBody.innerHTML = ''
       return
     }
 
-    const colspan = Math.max(1, visibleColCount())
+    const colspan = Math.max(1, specs.length)
     const viewportH = gridContainer.clientHeight || 600
     const scrollTop = gridContainer.scrollTop
 
@@ -846,7 +884,7 @@
     if (topH > 0)
       fragment.appendChild(spacerRow(topH, colspan))
     for (let r = start; r < end; r++) {
-      fragment.appendChild(buildRow(currentPageRows[r]))
+      fragment.appendChild(buildRow(currentPageRows[r], specs))
     }
     if (bottomH > 0)
       fragment.appendChild(spacerRow(bottomH, colspan))
@@ -1525,8 +1563,10 @@
       resizingCol.style.width = `${w}px`
       // 记录用户列宽，避免排序、筛选、分页重绘后丢失。
       const col = resizingCol.dataset.col
-      if (col != null)
+      if (col != null) {
         colWidths[col] = w
+        syncTableColumnLayout()
+      }
     })
     document.addEventListener('mouseup', finishColumnResize)
     window.addEventListener('blur', finishColumnResize)
