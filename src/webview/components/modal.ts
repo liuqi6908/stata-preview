@@ -1,7 +1,7 @@
 /**
  * Webview 通用模态框 HTML 组件。
  *
- * 只负责静态结构；打开、关闭和 ESC 行为由 media/components/modal.js 接管。
+ * 只负责静态结构；打开、关闭和 ESC 行为由调用方脚本接管。
  */
 
 import { icon } from '../icons'
@@ -32,7 +32,7 @@ export function renderModal(options: ModalTemplateOptions): string {
   const titleAttrs = ` id="${titleId}"`
   return `
     <div id="${options.id}" class="modal">
-      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
+      <div class="modal-content">
         <div class="modal-header">
           <h2${titleAttrs}>${options.title}</h2>
           <button id="${options.closeButtonId}" class="icon" data-modal-close="${options.id}" title="${options.closeTitle}">

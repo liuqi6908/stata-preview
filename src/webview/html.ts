@@ -10,6 +10,7 @@ import { env, l10n, Uri } from 'vscode'
 import { DEFAULT_PAGE_SIZE } from '../constants'
 import { getWebviewBootstrapL10n } from './bootstrapL10n'
 import { renderModal } from './components/modal'
+import { renderSwitch } from './components/switch'
 import { icon } from './icons'
 import { renderUsageGuideHtml } from './usageGuide'
 
@@ -126,11 +127,18 @@ function renderToolbar(): string {
         <button id="search-clear" title="${l10n.t('Clear filter')}">${l10n.t('Clear')}</button>
       </div>
       <div id="toolbar-right">
-        <button id="toggle-sidebar">${l10n.t('Toggle Sidebar')}</button>
-        <button id="usage-guide" class="icon" title="${l10n.t('Usage guide')}">${icon('help')}</button>
+        ${renderSwitch({
+          id: 'toggle-sidebar',
+          wrapperId: 'toggle-sidebar-control',
+          label: l10n.t('Variables panel'),
+          title: l10n.t('Hide variables panel'),
+          checked: true,
+        })}
+        <span class="toolbar-separator"></span>
         <button id="refresh-data" class="icon" title="${l10n.t('Refresh data')}">${icon('refresh')}</button>
         <button id="export-data" class="icon" title="${l10n.t('Export data')}">${icon('download')}</button>
-        <button id="file-info" class="icon" title="${l10n.t('File information')}">${icon('info')}</button>
+        <span class="toolbar-separator"></span>
+        <button id="help-menu" class="icon" title="${l10n.t('Help')}">${icon('help')}</button>
       </div>
     </div>
   `

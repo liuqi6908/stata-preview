@@ -126,10 +126,10 @@
   const searchClear = document.getElementById('search-clear')
   const filterError = document.getElementById('filter-error')
   const toggleSidebar = document.getElementById('toggle-sidebar')
+  const toggleSidebarControl = document.getElementById('toggle-sidebar-control')
   const exportData = document.getElementById('export-data')
   const refreshData = document.getElementById('refresh-data')
-  const fileInfo = document.getElementById('file-info')
-  const usageGuide = document.getElementById('usage-guide')
+  const helpMenu = document.getElementById('help-menu')
 
   // 网格器
   const gridContainer = document.getElementById('grid-container')
@@ -178,6 +178,7 @@
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
+  updateSidebarToggle()
 
   /**
    * 隐藏初始加载界面
@@ -654,6 +655,37 @@
   }
 
   /**
+   * 显示帮助菜单
+   */
+  function showHelpMenu(anchor) {
+    hideHeaderContextMenu()
+
+    const menu = document.createElement('div')
+    menu.className = 'context-menu'
+    menu.append(
+      createHeaderMenuItem(bootstrap.l10n.UsageGuide, () => usageGuideDialog.show()),
+      createHeaderMenuItem(bootstrap.l10n.FileInformation, openFileInfo),
+    )
+
+    document.body.appendChild(menu)
+    const anchorRect = anchor.getBoundingClientRect()
+    const rect = menu.getBoundingClientRect()
+    const left = Math.max(4, Math.min(anchorRect.right - rect.width, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(anchorRect.bottom + 4, window.innerHeight - rect.height - 4))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    headerContextMenu = menu
+  }
+
+  /**
+   * 同步变量面板开关状态。
+   */
+  function updateSidebarToggle() {
+    toggleSidebar.checked = sidebarVisible
+    toggleSidebarControl.title = sidebarVisible ? bootstrap.l10n.HideVariablesPanel : bootstrap.l10n.ShowVariablesPanel
+  }
+
+  /**
    * 导出当前表格视图
    */
   async function exportTableData(format) {
@@ -1043,9 +1075,14 @@
     e.stopPropagation()
     showExportMenu(exportData)
   })
-  toggleSidebar.addEventListener('click', () => {
-    sidebarVisible = !sidebarVisible
+  helpMenu.addEventListener('click', (e) => {
+    e.stopPropagation()
+    showHelpMenu(helpMenu)
+  })
+  toggleSidebar.addEventListener('change', (e) => {
+    sidebarVisible = e.target.checked
     layoutContainer.classList.toggle('sidebar-hidden', !sidebarVisible)
+    updateSidebarToggle()
   })
   highlightMissing.addEventListener('change', (e) => {
     dataTable.classList.toggle('highlight-missing', e.target.checked)
@@ -1057,16 +1094,10 @@
 
   // ---------- 文件信息弹窗 ----------
 
-  fileInfo.addEventListener('click', () => {
+  function openFileInfo() {
     renderFileInfo()
     fileInfoDialog.show()
-  })
-
-  // ---------- 使用说明弹窗 ----------
-
-  usageGuide.addEventListener('click', () => {
-    usageGuideDialog.show()
-  })
+  }
 
   /**
    * 渲染文件信息弹窗内容

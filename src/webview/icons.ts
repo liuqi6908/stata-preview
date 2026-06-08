@@ -10,7 +10,6 @@ export type WebviewIcon
   = | 'help'
     | 'refresh'
     | 'download'
-    | 'info'
     | 'firstPage'
     | 'prevPage'
     | 'nextPage'
@@ -22,7 +21,7 @@ export type WebviewIcon
  */
 export function icon(name: WebviewIcon, size = 18): string {
   const d = iconPath(name)
-  if (name === 'help' || name === 'info') {
+  if (name === 'help') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24">
       <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${d}</g>
     </svg>`
@@ -43,8 +42,6 @@ function iconPath(name: WebviewIcon): string {
       return 'M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4m-4 4a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4'
     case 'download':
       return 'M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12'
-    case 'info':
-      return '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9-3h.01"/><path d="M11 12h1v4h1"/>'
     case 'firstPage':
       return 'm11 7l-5 5l5 5m6-10l-5 5l5 5'
     case 'prevPage':

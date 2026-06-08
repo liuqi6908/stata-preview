@@ -371,6 +371,66 @@ table {
   }
 }
 
+/* 开关 */
+.toolbar-switch {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--vscode-button-secondaryForeground);
+
+  & .switch {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    flex: 0 0 auto;
+
+    & .switch-input {
+      display: none;
+    }
+
+    & .switch-label {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      cursor: pointer;
+      border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+      background: var(--vscode-input-background);
+      transition: background-color 120ms ease, border-color 120ms ease;
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--vscode-foreground);
+        transition: transform 120ms ease;
+      }
+    }
+
+    & .switch-input:checked {
+      & + .switch-label {
+        border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+        background: var(--vscode-inputOption-activeBackground, var(--vscode-button-background));
+
+        &::before {
+          transform: translateX(14px);
+        }
+      }
+    }
+  }
+
+  & .toolbar-switch-label {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+}
+
 /* 右键菜单 */
 .context-menu {
   position: fixed;
@@ -619,6 +679,13 @@ table {
     align-items: center;
     gap: 6px;
     margin-left: auto;
+
+    & .toolbar-separator {
+      width: 1px;
+      height: 18px;
+      margin: 0 2px;
+      background: var(--vscode-panel-border);
+    }
   }
 
   &::after {
