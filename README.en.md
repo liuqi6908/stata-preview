@@ -40,11 +40,13 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Support resizing columns by dragging the handle on the right edge of a header
 * Support a header context menu for copying variable names/labels, sorting, hiding columns, resetting width, and opening variable statistics
 * Display variable labels and value labels
-* Hide/show specified columns via the sidebar
+* Hide/show specified columns via the sidebar, with optional missing-value highlighting
 * Built-in Variable Explorer: support for univariate frequency analysis and descriptive statistics
+* Show whitespace-only strings with visible markers in variable statistics, making them distinct from missing values
 * Export the current table view as CSV or Excel
-* Built-in file information dialog for path, size, update time, Stata release, byte order, row count, and variable count
+* Built-in file information dialog for path, size, update time, Stata release, byte order, data volume, and variable count
 * Built-in usage guide dialog for filter expressions and table operations
+* Recognize some earlier Stata .dta formats and show clear unsupported-version messages
 * Automatically refresh the view when the underlying file is updated
 
 ### Unsupported Features
@@ -62,7 +64,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Click column headers to sort; hold Shift while clicking headers to sort by multiple columns
 * Drag the handle on the right edge of a header to resize the column
 * Right-click a column header to open column actions
-* The sidebar supports searching for variables and hiding/showing specified columns
+* The sidebar supports searching for variables, hiding/showing specified columns, and toggling missing-value highlighting
 * Use the toolbar to open file information, usage guide, refresh data, or export data
 * Press Esc to close file information, usage guide, or variable statistics dialogs
 
@@ -127,6 +129,7 @@ For each variable, the explorer can:
 * Support setting separate filter conditions for frequency analysis
 * Allow overlaying filter conditions for frequency analysis with global table filter conditions
 * Support parsing and statistics for long text variables such as strL
+* Show whitespace-only strings as visible markers such as `␠×2`, so they are not confused with true missing values
 
 ### Applicable Scenarios
 
