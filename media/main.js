@@ -151,6 +151,7 @@
   const sidebar = document.getElementById('sidebar')
   const sidebarPositionBtn = document.getElementById('sidebar-position')
   const variableSearch = document.getElementById('variable-search')
+  const highlightMissing = document.getElementById('highlight-missing')
   const selectAllVariables = document.getElementById('select-all-variables')
   const deselectAllVariables = document.getElementById('deselect-all-variables')
   const variableList = document.getElementById('variable-list')
@@ -826,9 +827,13 @@
     for (const { index: c } of specs) {
       const td = document.createElement('td')
       const rawVal = rowData[c]
-      if (rawVal === null || rawVal === undefined) {
+      if (isMissingCellValue(rawVal)) {
         td.textContent = ''
         td.classList.add('cell-missing')
+      }
+      else if (isWhitespaceOnlyString(rawVal)) {
+        td.textContent = rawVal
+        td.classList.add('cell-blank')
       }
       else {
         td.textContent = String(rawVal)
@@ -836,6 +841,20 @@
       tr.appendChild(td)
     }
     return tr
+  }
+
+  /**
+   * 判断单元格是否为真实缺失值。
+   */
+  function isMissingCellValue(value) {
+    return value === null || value === undefined
+  }
+
+  /**
+   * 判断单元格是否为仅包含空白字符的字符串。
+   */
+  function isWhitespaceOnlyString(value) {
+    return typeof value === 'string' && value.trim().length === 0
   }
 
   /**
@@ -1027,6 +1046,9 @@
   toggleSidebar.addEventListener('click', () => {
     sidebarVisible = !sidebarVisible
     layoutContainer.classList.toggle('sidebar-hidden', !sidebarVisible)
+  })
+  highlightMissing.addEventListener('change', (e) => {
+    dataTable.classList.toggle('highlight-missing', e.target.checked)
   })
   sidebarPositionBtn.addEventListener('click', () => {
     sidebarPosition = sidebarPosition === 'right' ? 'bottom' : 'right'

@@ -197,6 +197,12 @@ function renderSidebar(): string {
       <div id="sidebar-search">
         <input id="variable-search" type="text" placeholder="${l10n.t('Filter variables...')}">
       </div>
+      <div id="sidebar-options">
+        <label id="highlight-missing-wrap" title="${l10n.t('Highlight missing values')}">
+          <input id="highlight-missing" type="checkbox">
+          <span>${l10n.t('Highlight missing')}</span>
+        </label>
+      </div>
       <div id="variable-batch-actions">
         <button id="select-all-variables">${l10n.t('Select all')}</button>
         <button id="deselect-all-variables">${l10n.t('Deselect all')}</button>

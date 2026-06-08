@@ -175,7 +175,8 @@ table {
     border-style: solid;
     border-color: var(--vscode-panel-border);
 
-    &.cell-missing {
+    &.cell-missing,
+    &.cell-blank {
       &::after {
         content: "";
         display: block;
@@ -290,6 +291,13 @@ table {
     & thead th {
       cursor: default;
       background: var(--vscode-sideBar-background);
+    }
+  }
+
+  &.highlight-missing {
+    & td.cell-missing {
+      box-shadow: inset 0 0 0 1px var(--vscode-inputValidation-warningBorder, rgba(204, 167, 0, 0.65));
+      background: var(--vscode-inputValidation-warningBackground, rgba(204, 167, 0, 0.14));
     }
   }
 }
@@ -726,6 +734,20 @@ table {
 
     & #variable-search {
       width: 100%;
+    }
+  }
+
+  & #sidebar-options {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+
+    & #highlight-missing-wrap {
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      color: var(--vscode-foreground);
     }
   }
 

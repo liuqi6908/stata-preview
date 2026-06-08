@@ -62,6 +62,8 @@
   "Switch sidebar position": "切换侧边栏位置",
   "Position": "位置",
   "Filter variables...": "筛选变量...",
+  "Highlight missing values": "高亮显示缺失值",
+  "Highlight missing": "高亮缺失",
   "Select all": "全选",
   "Deselect all": "取消全选",
   "Loading dataset…": "正在加载数据集…",
