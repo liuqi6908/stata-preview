@@ -113,6 +113,21 @@ const FMT_119: FormatSpec = {
   encoding: 'utf8',
 }
 
+/** 已知的二进制 .dta release 显示名，其中 113/114/115 由旧版解析器支持。 */
+const BINARY_DTA_RELEASE_LABELS = new Map<number, string>([
+  [102, 'Stata 1 (format 102)'],
+  [103, 'Stata 2/3 (format 103)'],
+  [104, 'Stata 4 (format 104)'],
+  [105, 'Stata 5 (format 105)'],
+  [108, 'Stata 6 (format 108)'],
+  [110, 'Stata 7 (format 110)'],
+  [111, 'Stata 7SE (format 111)'],
+  [112, 'Stata 8/9 (format 112)'],
+  [113, 'Stata 8/9 (format 113)'],
+  [114, 'Stata 10/11 (format 114)'],
+  [115, 'Stata 12 (format 115)'],
+])
+
 /**
  * 解码 Stata 117/118/119 类型代码。
  *
@@ -529,6 +544,57 @@ function formatForModernRelease(releaseNum: number): FormatSpec | null {
   return null
 }
 
+/**
+ * 探测以单字节 release 开头的旧版二进制 .dta 文件。
+ */
+function detectBinaryDtaRelease(buffer: Buffer): number | null {
+  if (buffer.length < 1)
+    return null
+  const release = buffer[0]
+  return BINARY_DTA_RELEASE_LABELS.has(release) ? release : null
+}
+
+/**
+ * 将 .dta release 格式化为错误提示中的文件描述。
+ */
+function formatDtaReleaseLabel(release: number): string {
+  return BINARY_DTA_RELEASE_LABELS.get(release) ?? `Stata (format ${release})`
+}
+
+/**
+ * 生成已识别但尚不支持的 Stata 文件错误。
+ */
+function unsupportedDtaFileError(fileDescription: string): Error {
+  return new Error(l10n.t(
+    'Unsupported file: {0}. This viewer supports formats 113 (Stata 8/9), 114 (Stata 10/11), 115 (Stata 12), 117 (Stata 13), 118 (Stata 14+), and 119 (Stata 15+). Open the file in Stata and re-save it as a supported version to use it here.',
+    fileDescription,
+  ))
+}
+
+/**
+ * 将列式数据转换为旧预览接口使用的少量行式数据。
+ */
+function columnarToPreviewData(columnar: DtaColumnar, limitRows = 1000): DtaData {
+  const meta = columnar.meta
+  const rowCount = Math.min(meta.nobs, limitRows)
+  const rows: any[][] = []
+  for (let i = 0; i < rowCount; i++) {
+    rows.push(meta.headers.map((header) => {
+      if (columnar.missing[header]?.[i])
+        return null
+      return columnar.columns[header]?.[i] ?? null
+    }))
+  }
+
+  return {
+    headers: meta.headers,
+    labels: meta.labels,
+    rows,
+    valueLabels: meta.valueLabels,
+    nobs: meta.nobs,
+  }
+}
+
 function assertModernDimensions(fmt: FormatSpec, K: number, N: number): void {
   if (!Number.isInteger(K) || K < 0 || K > fmt.maxVariables)
     throw new Error(l10n.t('Implausible variable count: {0}', K))
@@ -559,15 +625,21 @@ export class DtaParser {
     // 文件开头是 ASCII 头部。
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
-      const first10 = buffer.toString('hex', 0, 10)
-      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', first10))
+      if (isLegacyDtaFormat(buffer))
+        return columnarToPreviewData(parseColumnarLegacy(buffer))
+
+      const binaryRelease = detectBinaryDtaRelease(buffer)
+      if (binaryRelease !== null)
+        throw unsupportedDtaFileError(formatDtaReleaseLabel(binaryRelease))
+
+      throw new Error(l10n.t('Not a Stata file (or unrecognized format).'))
     }
 
     const releaseMatch = head.match(/<release>(\d+)<\/release>/)
     const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
     const fmt = formatForModernRelease(releaseNum)
     if (!fmt)
-      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', releaseNum || l10n.t('unknown')))
+      throw unsupportedDtaFileError(releaseNum ? formatDtaReleaseLabel(releaseNum) : l10n.t('unknown'))
 
     const byteOrder = readByteOrder(head)
 
@@ -959,33 +1031,18 @@ function computeLayout(buffer: Buffer): Layout {
   const head = buffer.toString('latin1', 0, 200)
   if (!head.includes('<stata_dta>')) {
     // 旧版二进制格式（Stata 13 之前）以单字节 ds_format 起始。
-    // 识别值包括：105、108、110、111、112、113、114、115。
-    const firstByte = buffer.length > 0 ? buffer[0] : -1
-    const legacyFormats: { [k: number]: string } = {
-      105: 'Stata 5 (format 105)',
-      108: 'Stata 6 (format 108)',
-      110: 'Stata 7 (format 110)',
-      111: 'Stata 7SE (format 111)',
-      112: 'Stata 8/9 (format 112)',
-      113: 'Stata 8/9 (format 113)',
-      114: 'Stata 10/11 (format 114)',
-      115: 'Stata 12 (format 115)',
-    }
-    if (legacyFormats[firstByte]) {
-      throw new Error(
-        l10n.t(
-          'Unsupported file: {0}. This viewer supports formats 113 (Stata 8/9), 114 (Stata 10/11), 115 (Stata 12), 117 (Stata 13), 118 (Stata 14+), and 119 (Stata 15+). Open the file in Stata and re-save it as a supported version to use it here.',
-          legacyFormats[firstByte],
-        ),
-      )
-    }
+    // 102/103/104 等更早格式不进入解析器，但需要提示准确的 release。
+    const binaryRelease = detectBinaryDtaRelease(buffer)
+    if (binaryRelease !== null)
+      throw unsupportedDtaFileError(formatDtaReleaseLabel(binaryRelease))
+
     throw new Error(l10n.t('Not a Stata file (or unrecognized format).'))
   }
   const releaseMatch = head.match(/<release>(\d+)<\/release>/)
   const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
   const fmt = formatForModernRelease(releaseNum)
   if (!fmt)
-    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', releaseNum || l10n.t('unknown')))
+    throw unsupportedDtaFileError(releaseNum ? formatDtaReleaseLabel(releaseNum) : l10n.t('unknown'))
 
   const byteOrder = readByteOrder(head)
 
