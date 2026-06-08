@@ -18,7 +18,7 @@
  *   typlist:           nvar 字节（1..244=strN；251=byte；252=int；253=long；254=float；255=double）
  *   varlist:           nvar * 33 字节（变量名）
  *   srtlist:           (nvar+1) * 2 字节
- *   fmtlist:           nvar * 12 字节（113/114）或 49 字节（115）
+ *   fmtlist:           nvar * 12 字节（113）或 49 字节（114/115）
  *   lbllist:           nvar * 33 字节
  *   variable_labels:   nvar * 81 字节
  *   expansion fields:  可变长度，以 tag=0 且 len=0 终止
@@ -301,8 +301,8 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   // 排序列表
   off += (nvar + 1) * 2
 
-  // 显示格式列表
-  const fmtLen = release === 115 ? 49 : 12
+  // 显示格式列表：114 开始格式字段扩展到 49 字节。
+  const fmtLen = release === 113 ? 12 : 49
   off += nvar * fmtLen
 
   // 每个变量绑定的值标签名称
@@ -319,7 +319,8 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   }
   off += nvar * 81
 
-  // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止
+  // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止。
+  // tag=1 为 characteristics；其他 tag 或越界长度说明元数据偏移已经不可信。
   while (off + 5 <= buf.length) {
     const tag = buf[off]
     const len = readInt32(buf, off + 1, byteOrder)
@@ -327,9 +328,9 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
       off += 5
       break
     }
-    off += 5 + len
-    if (len < 0 || off > buf.length)
+    if (tag !== 1 || len < 0 || off + 5 + len > buf.length)
       throw new Error(l10n.t('Malformed expansion field.'))
+    off += 5 + len
   }
 
   const rowSize = typeSizes.reduce((a, b) => a + b, 0)
