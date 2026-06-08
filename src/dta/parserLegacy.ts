@@ -446,8 +446,7 @@ export function parseColumnarLegacy(buf: Buffer): DtaColumnar {
       typeSizes,
       valueLabels: layout.valueLabels,
       nobs,
-      // 下游按 117/118 分支处理，这里用 117 标记列式结果。
-      release: 117,
+      release: layout.release,
       byteOrder: layout.byteOrder,
     },
     columns,
@@ -498,7 +497,7 @@ export async function parseColumnarLegacyAsync(
       typeSizes,
       valueLabels: layout.valueLabels,
       nobs,
-      release: 117,
+      release: layout.release,
       byteOrder: layout.byteOrder,
     },
     columns,

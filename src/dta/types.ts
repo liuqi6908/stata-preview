@@ -8,6 +8,9 @@
 /** Stata 文件字节序。LSF 为小端，MSF 为大端。 */
 export type ByteOrder = 'LSF' | 'MSF'
 
+/** 当前解析器支持的 Stata DTA release 标记。 */
+export type DtaRelease = 113 | 114 | 115 | 117 | 118 | 119
+
 /** 行式预览数据。 */
 export interface DtaData {
   /** 变量名列表。 */
@@ -47,7 +50,7 @@ export interface DtaMeta {
   /** 原始总观测数。 */
   nobs: number
   /** 解析后的 Stata release 标记。 */
-  release: 117 | 118 | 119
+  release: DtaRelease
   /** 文件字节序。 */
   byteOrder: ByteOrder
 }
