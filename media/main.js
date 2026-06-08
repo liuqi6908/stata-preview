@@ -5,7 +5,7 @@
  * 筛选、排序、分页和变量汇总均通过消息发送给扩展宿主处理。
  */
 
-/* global bootstrap, vscode */
+/* global bootstrap, vscode, modals */
 
 (function () {
   // ---------- 状态 ----------
@@ -160,20 +160,19 @@
   const progressText = document.getElementById('progress-text')
 
   // 文件信息弹窗
-  const fileInfoModal = document.getElementById('file-info-modal')
-  const closeFileInfo = document.getElementById('close-file-info')
   const fileInfoBody = document.getElementById('file-info-body')
 
-  // 使用说明弹窗
-  const usageGuideModal = document.getElementById('usage-guide-modal')
-  const closeUsageGuide = document.getElementById('close-usage-guide')
-
   // 变量汇总弹窗
-  const explorerModal = document.getElementById('explorer-modal')
   const explorerVariable = document.getElementById('explorer-variable')
-  const closeExplorer = document.getElementById('close-explorer')
   const explorerBody = document.getElementById('explorer-body')
-  const modals = [fileInfoModal, usageGuideModal, explorerModal]
+  const modalRegistry = modals.createRegistry([
+    'file-info-modal',
+    'usage-guide-modal',
+    'explorer-modal',
+  ])
+  const fileInfoDialog = modalRegistry.get('file-info-modal')
+  const usageGuideDialog = modalRegistry.get('usage-guide-modal')
+  const explorerDialog = modalRegistry.get('explorer-modal')
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
@@ -332,7 +331,7 @@
       : formatL10n(bootstrap.l10n.PageSummaryFiltered, fmtInt(start), fmtInt(end), fmtInt(totalFiltered), fmtInt(totalAll))
     pageFirst.disabled = pagePrev.disabled = currentPage <= 1
     pageLast.disabled = pageNext.disabled = currentPage >= totalPages
-    if (fileInfoModal.classList.contains('show'))
+    if (fileInfoDialog.isOpen())
       renderFileInfo()
   }
 
@@ -560,11 +559,7 @@
    * 关闭当前打开的弹窗。
    */
   function closeOpenModal() {
-    const openModal = modals.find(modal => modal.classList.contains('show'))
-    if (!openModal)
-      return false
-    openModal.classList.remove('show')
-    return true
+    return modalRegistry.closeOpen()
   }
 
   /**
@@ -1004,23 +999,13 @@
 
   fileInfo.addEventListener('click', () => {
     renderFileInfo()
-    fileInfoModal.classList.add('show')
-  })
-  closeFileInfo.addEventListener('click', () => fileInfoModal.classList.remove('show'))
-  fileInfoModal.addEventListener('click', (e) => {
-    if (e.target === fileInfoModal)
-      fileInfoModal.classList.remove('show')
+    fileInfoDialog.show()
   })
 
   // ---------- 使用说明弹窗 ----------
 
   usageGuide.addEventListener('click', () => {
-    usageGuideModal.classList.add('show')
-  })
-  closeUsageGuide.addEventListener('click', () => usageGuideModal.classList.remove('show'))
-  usageGuideModal.addEventListener('click', (e) => {
-    if (e.target === usageGuideModal)
-      usageGuideModal.classList.remove('show')
+    usageGuideDialog.show()
   })
 
   /**
@@ -1071,12 +1056,6 @@
 
   // ---------- 变量汇总弹窗 ----------
 
-  closeExplorer.addEventListener('click', () => explorerModal.classList.remove('show'))
-  explorerModal.addEventListener('click', (e) => {
-    if (e.target === explorerModal)
-      explorerModal.classList.remove('show')
-  })
-
   /** 当前汇总变量名 */
   let explorerVar = null
   /** 变量汇总局部过滤表达式 */
@@ -1093,7 +1072,7 @@
     explorerExpr = ''
     explorerInheritGeneral = false
     explorerVariable.textContent = explorerVar + (varLabel ? ` - ${varLabel}` : '')
-    explorerModal.classList.add('show')
+    explorerDialog.show()
     await runTabulate()
   }
 

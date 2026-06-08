@@ -10,9 +10,6 @@ import type { DtaView } from './dtaView'
 import { Buffer } from 'node:buffer'
 import { l10n } from 'vscode'
 
-/** 表格导出格式 */
-export type TableExportFormat = 'csv' | 'xlsx'
-
 /** Excel 单工作表最大行数 */
 export const EXCEL_MAX_ROWS = 1048576
 /** Excel 单工作表最大列数 */

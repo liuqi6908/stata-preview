@@ -11,48 +11,8 @@
  */
 
 import type { CompiledFilter } from './filterCompiler'
-import type { DtaColumnar, DtaMeta } from './parser'
+import type { DtaColumnar, DtaMeta, FilterSpec, PageRequest, PageResult, SortSpec } from './types'
 import { compileFilter } from './filterCompiler'
-
-/** 排序配置 */
-export interface SortSpec {
-  /** 排序列 */
-  col: string
-  /** 排序方式 */
-  dir: 'asc' | 'desc'
-}
-
-/** 筛选配置 */
-export interface FilterSpec {
-  /** 筛选表达式，例如 `edad > 30 & treatment == 1`。 */
-  query: string
-}
-
-/** 分页请求参数 */
-export interface PageRequest {
-  /** 在（过滤 + 排序后）视图中的起始位置 */
-  offset: number
-  /** 分页大小 */
-  limit: number
-  /** 可选列名列表；不传时返回全部列 */
-  columns?: string[]
-}
-
-/** 分页结果 */
-export interface PageResult {
-  /** 行数组，每行与请求列或 meta.headers 对齐 */
-  rows: any[][]
-  /** 行在原始文件中的行索引 */
-  rowIndices: number[]
-  /** 在（过滤 + 排序后）视图中的起始位置 */
-  offset: number
-  /** 分页大小 */
-  limit: number
-  /** 当前视图大小（过滤后） */
-  totalFiltered: number
-  /** 原始总观测数（未过滤） */
-  totalAll: number
-}
 
 /**
  * 针对 DtaColumnar 数据集的有状态查询服务

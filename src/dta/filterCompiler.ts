@@ -23,7 +23,7 @@
  * 缺失值语义：缺失值参与比较时，该比较结果为 false。
  */
 
-import type { DtaColumnar } from './parser'
+import type { DtaColumnar } from './types'
 import { l10n } from 'vscode'
 
 /** 编译缓存 */

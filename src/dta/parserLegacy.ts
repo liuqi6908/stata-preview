@@ -29,7 +29,7 @@
  */
 
 import type { Buffer } from 'node:buffer'
-import type { ColumnArray, DtaColumnar } from './parser'
+import type { ColumnArray, DtaColumnar } from './types'
 import { l10n } from 'vscode'
 
 // ---------- 辅助函数 ----------
