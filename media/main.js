@@ -1022,7 +1022,7 @@
       [bootstrap.l10n.LastUpdated, fileInfoState.lastModified],
       [bootstrap.l10n.StataRelease, release],
       [bootstrap.l10n.ByteOrder, byteOrder],
-      [bootstrap.l10n.Rows, fmtInt(totalAll)],
+      [bootstrap.l10n.DataVolume, fmtInt(totalAll)],
       [bootstrap.l10n.VariablesCount, fmtInt(variableCount)],
     ]
     fileInfoBody.innerHTML = `

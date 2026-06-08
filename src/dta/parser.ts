@@ -560,14 +560,14 @@ export class DtaParser {
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
       const first10 = buffer.toString('hex', 0, 10)
-      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Only Stata 13+ (formats 117/118/119) are supported.', first10))
+      throw new Error(l10n.t('Unsupported Stata file. First 10 bytes: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', first10))
     }
 
     const releaseMatch = head.match(/<release>(\d+)<\/release>/)
     const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
     const fmt = formatForModernRelease(releaseNum)
     if (!fmt)
-      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118, 119.', releaseNum || l10n.t('unknown')))
+      throw new Error(l10n.t('Unsupported Stata release: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', releaseNum || l10n.t('unknown')))
 
     const byteOrder = readByteOrder(head)
 
@@ -974,7 +974,7 @@ function computeLayout(buffer: Buffer): Layout {
     if (legacyFormats[firstByte]) {
       throw new Error(
         l10n.t(
-          'Unsupported file: {0}. This viewer supports formats 117 (Stata 13), 118 (Stata 14+), and 119 (Stata 15+). Open the file in Stata and re-save it (`saveold, version(13)` or just `save`) to use it here.',
+          'Unsupported file: {0}. This viewer supports formats 113 (Stata 8/9), 114 (Stata 10/11), 115 (Stata 12), 117 (Stata 13), 118 (Stata 14+), and 119 (Stata 15+). Open the file in Stata and re-save it as a supported version to use it here.',
           legacyFormats[firstByte],
         ),
       )
@@ -985,7 +985,7 @@ function computeLayout(buffer: Buffer): Layout {
   const releaseNum = releaseMatch ? Number.parseInt(releaseMatch[1], 10) : 0
   const fmt = formatForModernRelease(releaseNum)
   if (!fmt)
-    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported: 117, 118, 119.', releaseNum || l10n.t('unknown')))
+    throw new Error(l10n.t('Unsupported Stata release: {0}. Supported formats: 113, 114, 115, 117, 118, 119.', releaseNum || l10n.t('unknown')))
 
   const byteOrder = readByteOrder(head)
 

@@ -45,7 +45,7 @@ export function getWebviewBootstrapL10n() {
     LastUpdated: l10n.t('Last updated'),
     StataRelease: l10n.t('Stata release'),
     ByteOrder: l10n.t('Byte order'),
-    Rows: l10n.t('Rows'),
+    DataVolume: l10n.t('Data volume'),
     VariablesCount: l10n.t('Variables'),
     Unknown: l10n.t('Unknown'),
     Computing: l10n.t('Computing…'),
