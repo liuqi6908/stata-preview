@@ -1319,7 +1319,7 @@
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       const lbl = e.label !== undefined && e.label !== null ? escapeHtml(e.label) : ''
       html += `<tr>
-          <td>${escapeHtml(String(e.value))}</td>
+          <td>${renderValueCell(e.value)}</td>
           <td>${lbl}</td>
           <td style="text-align: right">${fmtNum(e.freq)}</td>
           <td style="text-align: right">${e.pct.toFixed(2)}</td>
@@ -1454,7 +1454,7 @@
     for (const e of r.topValues) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       html += `<tr>
-          <td>${escapeHtml(e.value)}</td>
+          <td>${renderValueCell(e.value)}</td>
           <td style="text-align: right">${fmtNum(e.freq)}</td>
           <td style="text-align: right">${e.pct.toFixed(2)}</td>
           <td><div class="bar-chart"><div class="bar-fill" style="width: ${pctOfMax}%"></div></div></td>
@@ -1462,6 +1462,43 @@
     }
     html += '</tbody></table></div>'
     return html
+  }
+
+  /**
+   * 渲染统计表中的值单元格。
+   */
+  function renderValueCell(value) {
+    const text = String(value)
+    if (isWhitespaceOnlyString(text))
+      return `<span class="whitespace-value">${escapeHtml(formatWhitespacePreview(text))}</span>`
+    return escapeHtml(text)
+  }
+
+  /**
+   * 将纯空白字符串转换为可见标记。
+   */
+  function formatWhitespacePreview(value) {
+    const chars = Array.from(value)
+    if (chars.length === 0)
+      return ''
+    if (chars.every(ch => ch === chars[0]))
+      return `${whitespaceSymbol(chars[0])}×${chars.length}`
+    return chars.map(whitespaceSymbol).join('')
+  }
+
+  /**
+   * 将单个空白字符转换为可见符号。
+   */
+  function whitespaceSymbol(ch) {
+    if (ch === ' ')
+      return '␠'
+    if (ch === '\t')
+      return '⇥'
+    if (ch === '\n')
+      return '↵'
+    if (ch === '\r')
+      return '␍'
+    return `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
   }
 
   // ---------- 尺寸拖拽 ----------

@@ -486,6 +486,15 @@ table {
   }
 }
 
+/* 空白字符 */
+.whitespace-value {
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-textPreformat-foreground, var(--vscode-editor-foreground));
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background));
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
 /* 布局 */
 #layout-container {
   width: 100%;
