@@ -4,6 +4,7 @@ const process = require('node:process')
 const esbuild = require('esbuild')
 
 const watch = process.argv.includes('--watch')
+const production = process.argv.includes('--production')
 
 /**
  * 创建 esbuild 问题匹配插件。
@@ -18,7 +19,7 @@ function esbuildProblemMatcherPlugin(type) {
     name: `esbuild-problem-matcher-${type}`,
     setup(build) {
       build.onStart(() => {
-        console.log(`[watch] ${type} build started`)
+        console.log(`[watch] ${type} 开始构建`)
       })
       build.onEnd((result) => {
         result.errors.forEach(({ text, location }) => {
@@ -26,7 +27,7 @@ function esbuildProblemMatcherPlugin(type) {
           if (location)
             console.error(`    ${location.file}:${location.line}:${location.column}:`)
         })
-        console.log(`[watch] ${type} build finished`)
+        console.log(`[watch] ${type} 构建完成`)
       })
     },
   }
@@ -114,8 +115,8 @@ async function main() {
       ],
       bundle: true,
       format: 'cjs',
-      minify: true,
-      sourcemap: false,
+      minify: production,
+      sourcemap: !production,
       sourcesContent: false,
       platform: 'node',
       outfile: 'dist/extension.js',
@@ -131,8 +132,8 @@ async function main() {
         'media/**/*.css',
       ],
       bundle: false,
-      minify: true,
-      sourcemap: false,
+      minify: production,
+      sourcemap: !production,
       sourcesContent: false,
       platform: 'browser',
       outbase: 'media',
@@ -167,6 +168,7 @@ async function main() {
 }
 
 main().catch((e) => {
+  console.error('构建失败：')
   console.error(e)
   process.exit(1)
 })
