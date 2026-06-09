@@ -64,6 +64,9 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   ): Promise<void> {
     webviewPanel.webview.options = {
       enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'media'),
+      ],
     }
 
     const session = new DtaDocumentSession(document.uri)

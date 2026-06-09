@@ -40,11 +40,19 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
   const modalScriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'components', 'modal.js'))
   const closeTitle = l10n.t('Close')
   const htmlLang = getHtmlLang()
+  const nonce = getNonce()
+  const csp = renderContentSecurityPolicy(webview, nonce)
+  const bootstrapJson = stringifyScriptJson({
+    ...initData,
+    pageSize: initData.pageSize ?? DEFAULT_PAGE_SIZE,
+    l10n: getWebviewBootstrapL10n(),
+  })
 
   return `<!DOCTYPE html>
     <html lang="${htmlLang}">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="${csp}">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <link href="${styleUri}" rel="stylesheet">
       <title>${l10n.t('Stata Preview')}</title>
@@ -86,18 +94,57 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
         closeTitle,
       })}
 
-      <script>
-        const bootstrap = ${JSON.stringify({
-          ...initData,
-          pageSize: initData.pageSize ?? DEFAULT_PAGE_SIZE,
-          l10n: getWebviewBootstrapL10n(),
-        })};
+      <script nonce="${nonce}">
+        const bootstrap = ${bootstrapJson};
         const vscode = acquireVsCodeApi();
       </script>
-      <script src="${modalScriptUri}"></script>
-      <script src="${scriptUri}"></script>
+      <script nonce="${nonce}" src="${modalScriptUri}"></script>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`
+}
+
+/**
+ * 渲染 Webview 内容安全策略。
+ *
+ * 默认拒绝全部资源，仅允许当前 Webview 资源根中的样式、字体和带 nonce 的脚本。
+ */
+function renderContentSecurityPolicy(webview: vscode.Webview, nonce: string): string {
+  return [
+    `default-src 'none'`,
+    `base-uri 'none'`,
+    `form-action 'none'`,
+    `frame-src 'none'`,
+    `object-src 'none'`,
+    `connect-src 'none'`,
+    `img-src ${webview.cspSource} data:`,
+    `font-src ${webview.cspSource}`,
+    `style-src ${webview.cspSource}`,
+    `script-src 'nonce-${nonce}'`,
+  ].join('; ')
+}
+
+/**
+ * 生成脚本 nonce。
+ */
+function getNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let text = ''
+  for (let i = 0; i < 32; i++)
+    text += chars.charAt(Math.floor(Math.random() * chars.length))
+  return text
+}
+
+/**
+ * 将 JSON 安全地嵌入 <script>。
+ */
+function stringifyScriptJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003C')
+    .replace(/>/g, '\\u003E')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }
 
 /**
@@ -156,7 +203,7 @@ function renderGrid(): string {
           <tbody id="table-body"></tbody>
         </table>
       </div>
-      <div id="grid-overlay" style="display: none">
+      <div id="grid-overlay">
         <div id="grid-overlay-message">${l10n.t('Computing…')}</div>
       </div>
     </div>
@@ -232,7 +279,7 @@ function renderInitialLoading(): string {
       <div id="initial-loading-card">
         <h2>${l10n.t('Loading dataset…')}</h2>
         <div id="progress-track">
-          <div id="progress-fill" style="width: 0%"></div>
+          <div id="progress-fill"></div>
         </div>
         <div id="progress-text">${l10n.t('Reading file…')}</div>
       </div>

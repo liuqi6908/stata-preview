@@ -292,6 +292,14 @@ table {
       cursor: default;
       background: var(--vscode-sideBar-background);
     }
+
+    & .cell-right {
+      text-align: right;
+    }
+
+    & .bar-cell {
+      width: 162px;
+    }
   }
 
   &.highlight-missing {
@@ -723,6 +731,7 @@ table {
   }
 
   & #grid-overlay {
+    display: none;
     position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.3);
@@ -940,6 +949,7 @@ table {
       background: var(--vscode-scrollbarSlider-background);
 
       & #progress-fill {
+        width: 0%;
         height: 100%;
         background: var(--vscode-progressBar-background, #0e639c);
         transition: width 0.15s ease-out;

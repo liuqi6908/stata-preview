@@ -1200,6 +1200,7 @@
       }
       clearExplorerFilterError()
       resultEl.innerHTML = renderTabulateResult(res.result, explorerVar, res.scopeN)
+      hydrateBarWidths(resultEl)
     }
     catch (e) {
       resultEl.innerHTML = `<div class="explorer-error">${bootstrap.l10n.ErrorPrefix} ${escapeHtml(String(e.message || e))}</div>`
@@ -1356,17 +1357,17 @@
     const maxFreq = r.entries.reduce((m, e) => Math.max(m, e.freq), 0)
     let html = `<div class="explorer-section"><h3>${bootstrap.l10n.FrequencyDistribution}</h3>`
     html += '<table class="flat">'
-    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th style="text-align: right">${bootstrap.l10n.Freq}</th><th style="text-align: right">${bootstrap.l10n.Percent}</th><th style="text-align: right">${bootstrap.l10n.CumPercent}</th><th style="width: 162px">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th class="cell-right">${bootstrap.l10n.Freq}</th><th class="cell-right">${bootstrap.l10n.Percent}</th><th class="cell-right">${bootstrap.l10n.CumPercent}</th><th class="bar-cell">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.entries) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       const lbl = e.label !== undefined && e.label !== null ? escapeHtml(e.label) : ''
       html += `<tr>
           <td>${renderValueCell(e.value)}</td>
           <td>${lbl}</td>
-          <td style="text-align: right">${fmtNum(e.freq)}</td>
-          <td style="text-align: right">${e.pct.toFixed(2)}</td>
-          <td style="text-align: right">${e.cum.toFixed(2)}</td>
-          <td><div class="bar-chart"><div class="bar-fill" style="width: ${pctOfMax}%"></div></div></td>
+          <td class="cell-right">${fmtNum(e.freq)}</td>
+          <td class="cell-right">${e.pct.toFixed(2)}</td>
+          <td class="cell-right">${e.cum.toFixed(2)}</td>
+          <td class="bar-cell"><div class="bar-chart"><div class="bar-fill" data-width="${barWidthValue(pctOfMax)}"></div></div></td>
         </tr>`
     }
     html += '</tbody></table></div>'
@@ -1492,18 +1493,37 @@
     const maxFreq = r.topValues.reduce((m, e) => Math.max(m, e.freq), 0)
     let html = `<div class="explorer-section"><h3>${bootstrap.l10n.Top10Values}</h3>`
     html += '<table class="flat">'
-    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th style="text-align: right">${bootstrap.l10n.Freq}</th><th style="text-align: right">${bootstrap.l10n.Percent}</th><th style="width: 162px">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th class="cell-right">${bootstrap.l10n.Freq}</th><th class="cell-right">${bootstrap.l10n.Percent}</th><th class="bar-cell">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.topValues) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       html += `<tr>
           <td>${renderValueCell(e.value)}</td>
-          <td style="text-align: right">${fmtNum(e.freq)}</td>
-          <td style="text-align: right">${e.pct.toFixed(2)}</td>
-          <td><div class="bar-chart"><div class="bar-fill" style="width: ${pctOfMax}%"></div></div></td>
+          <td class="cell-right">${fmtNum(e.freq)}</td>
+          <td class="cell-right">${e.pct.toFixed(2)}</td>
+          <td class="bar-cell"><div class="bar-chart"><div class="bar-fill" data-width="${barWidthValue(pctOfMax)}"></div></div></td>
         </tr>`
     }
     html += '</tbody></table></div>'
     return html
+  }
+
+  /**
+   * 将柱状图宽度写入 CSSOM，避免在 HTML 字符串里生成 style 属性。
+   */
+  function hydrateBarWidths(root) {
+    root.querySelectorAll('.bar-fill[data-width]').forEach((bar) => {
+      const width = Number.parseFloat(bar.dataset.width || '0')
+      bar.style.width = `${Number.isFinite(width) ? width : 0}%`
+      bar.removeAttribute('data-width')
+    })
+  }
+
+  /**
+   * 生成安全的柱状图百分比。
+   */
+  function barWidthValue(value) {
+    const width = Number.isFinite(value) ? value : 0
+    return Math.max(0, Math.min(100, width)).toFixed(4)
   }
 
   /**
