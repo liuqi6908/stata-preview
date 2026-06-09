@@ -25,7 +25,7 @@
   ],
   "main": "./dist/extension.js",
   "icon": "media/logo.png",
-  "l10n": "./l10n",
+  "l10n": "./dist/l10n",
   "engines": {
     "vscode": "^1.120.0"
   },

@@ -1,6 +1,7 @@
 # 依赖与源码
 node_modules/
 src/
+l10n/
 **/*.ts
 esbuild.js
 tsconfig.json
@@ -10,6 +11,13 @@ eslint.config.mjs
 **/*.map
 out/
 *.vsix
+
+# Webview 源资源
+media/**
+!media/logo.png
+
+# 文档
+README.en.md
 
 # 配置与日志
 .vscode/

@@ -35,9 +35,9 @@ export interface RenderDtaWebviewHtmlOptions {
  */
 export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): string {
   const { webview, extensionUri, initData } = options
-  const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'main.js'))
-  const modalScriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'components', 'modal.js'))
-  const styleUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'main.css'))
+  const styleUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'main.css'))
+  const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'main.js'))
+  const modalScriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'components', 'modal.js'))
   const closeTitle = l10n.t('Close')
   const htmlLang = getHtmlLang()
 
