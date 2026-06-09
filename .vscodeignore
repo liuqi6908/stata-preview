@@ -2,9 +2,12 @@
 node_modules/
 src/
 l10n/
+scripts/
+test/
 **/*.ts
 esbuild.js
 tsconfig.json
+tsconfig.test.json
 eslint.config.mjs
 
 # 构建文件

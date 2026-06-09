@@ -13,4 +13,10 @@ export default antfu(
       'style/eol-last': 'off',
     },
   },
+  {
+    files: ['test/**/*.ts'],
+    rules: {
+      'test/no-import-node-test': 'off',
+    },
+  },
 )

@@ -45,10 +45,11 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "tsc --noEmit && node esbuild.js --production",
+    "vscode:prepublish": "tsc --noEmit && pnpm test && node esbuild.js --production",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint . --fix",
+    "test": "tsc --noEmit -p tsconfig.test.json && node scripts/run-tests.mjs",
     "l10n": "npx @vscode/l10n-dev export --outDir ./l10n ./src",
     "build": "vsce package"
   },
