@@ -10,7 +10,7 @@ import type { DtaView } from '../dta/dtaView'
 import type { FilterSpec, SortSpec, TableExportFormat } from '../dta/types'
 import * as vscode from 'vscode'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../constants'
-import { DtaDocumentSession } from '../dta/documentSession'
+import { DtaDocumentSession, isStaleDtaLoadError } from '../dta/documentSession'
 import { exportDtaView, formatUriForDisplay } from '../dta/exportService'
 import { FilterCompileError } from '../dta/filterCompiler'
 import { renderDtaWebviewHtml } from '../webview/html'
@@ -20,6 +20,51 @@ import { renderDtaWebviewHtml } from '../webview/html'
  */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 生成当前文档对应的精确文件监听模式。
+ */
+function createDocumentFilePattern(uri: vscode.Uri): vscode.RelativePattern {
+  return new vscode.RelativePattern(parentUri(uri), escapeGlobSegment(uriBasename(uri)))
+}
+
+/**
+ * 获取 URI 的父目录。
+ */
+function parentUri(uri: vscode.Uri): vscode.Uri {
+  const path = uri.path.replace(/\/+$/, '')
+  const slash = path.lastIndexOf('/')
+  const parentPath = slash <= 0 ? '/' : path.slice(0, slash)
+  return uri.with({ path: parentPath })
+}
+
+/**
+ * 获取 URI 的文件名。
+ */
+function uriBasename(uri: vscode.Uri): string {
+  const path = uri.path.replace(/\/+$/, '')
+  const slash = path.lastIndexOf('/')
+  return slash >= 0 ? path.slice(slash + 1) : path
+}
+
+/**
+ * 将文件名转成单段 glob 字面量，避免特殊字符被当成通配符。
+ */
+function escapeGlobSegment(segment: string): string {
+  return segment.replace(/[*?[\]{}]/g, char => `[${char}]`)
+}
+
+/**
+ * 发送加载错误；过期加载会被新的刷新取代，不需要展示。
+ */
+function postLoadError(webviewPanel: vscode.WebviewPanel, error: unknown): void {
+  if (isStaleDtaLoadError(error))
+    return
+  webviewPanel.webview.postMessage({
+    command: 'loadError',
+    error: errorMessage(error),
+  })
 }
 
 /**
@@ -125,10 +170,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         void session.getView()
           .then(postInitData)
           .catch((e) => {
-            webviewPanel.webview.postMessage({
-              command: 'loadError',
-              error: errorMessage(e),
-            })
+            postLoadError(webviewPanel, e)
           })
       }
     }
@@ -149,21 +191,22 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     // 文件变更后清空缓存并重新加载。
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(document.uri, '*'),
+      createDocumentFilePattern(document.uri),
     )
-    watcher.onDidChange(async () => {
-      session.invalidate()
-      webviewPanel.webview.postMessage({ command: 'showLoading' })
+    const reloadChangedFile = async () => {
       try {
+        if (!await session.hasFileContentChanged())
+          return
+
+        webviewPanel.webview.postMessage({ command: 'showLoading' })
         await reloadData()
       }
       catch (e) {
-        webviewPanel.webview.postMessage({
-          command: 'loadError',
-          error: errorMessage(e),
-        })
+        postLoadError(webviewPanel, e)
       }
-    })
+    }
+    watcher.onDidChange(reloadChangedFile)
+    watcher.onDidCreate(reloadChangedFile)
 
     // Webview 消息入口：处理刷新、分页、排序、筛选、变量汇总和导出。
     webviewPanel.webview.onDidReceiveMessage(async (message) => {
@@ -174,7 +217,6 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       try {
         if (message.command === 'refresh') {
-          session.invalidate()
           webviewPanel.webview.postMessage({ command: 'showLoading' })
           await reloadData()
         }
@@ -208,6 +250,18 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         }
       }
       catch (e) {
+        if (isStaleDtaLoadError(e)) {
+          if (message.requestId) {
+            webviewPanel.webview.postMessage({
+              command: 'error',
+              requestId: message.requestId,
+              error: errorMessage(e),
+              stale: true,
+            })
+          }
+          return
+        }
+
         // 所有命令共享的兜底错误响应，避免 Webview 请求悬空。
         const msg = errorMessage(e)
         if (message.command === 'exportData')
@@ -228,10 +282,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     void this.loadData(session, webviewPanel, prepareWebviewReload)
       .catch((e) => {
-        webviewPanel.webview.postMessage({
-          command: 'loadError',
-          error: errorMessage(e),
-        })
+        postLoadError(webviewPanel, e)
       })
   }
 
@@ -285,6 +336,8 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       })
     }
     catch (e) {
+      if (isStaleDtaLoadError(e))
+        throw e
       const msg = e instanceof FilterCompileError ? e.message : errorMessage(e)
       webviewPanel.webview.postMessage({
         command: 'filterError',
@@ -384,10 +437,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       this.postInitData(webviewPanel, view, fileInfo)
     }
     catch (e) {
-      webviewPanel.webview.postMessage({
-        command: 'loadError',
-        error: errorMessage(e),
-      })
+      postLoadError(webviewPanel, e)
     }
   }
 }

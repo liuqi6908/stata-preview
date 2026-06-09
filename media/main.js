@@ -247,7 +247,9 @@
       const p = pending.get(msg.requestId)
       pending.delete(msg.requestId)
       if (msg.error || msg.command === 'filterError') {
-        p.reject(new Error(msg.error || bootstrap.l10n.FilterError))
+        const error = new Error(msg.error || bootstrap.l10n.FilterError)
+        error.stale = !!msg.stale
+        p.reject(error)
       }
       else {
         p.resolve(msg)
@@ -707,7 +709,8 @@
       await postRequest('exportData', { format, columns })
     }
     catch (e) {
-      console.error('export failed', e)
+      if (!e.stale)
+        console.error('export failed', e)
     }
     finally {
       showOverlay(false)
@@ -1203,6 +1206,8 @@
       hydrateBarWidths(resultEl)
     }
     catch (e) {
+      if (e.stale)
+        return
       resultEl.innerHTML = `<div class="explorer-error">${bootstrap.l10n.ErrorPrefix} ${escapeHtml(String(e.message || e))}</div>`
     }
   }

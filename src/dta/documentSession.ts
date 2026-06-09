@@ -30,6 +30,14 @@ export interface DtaFileInfo {
   lastModified: string
 }
 
+/** 用于判断文件内容是否可能变化的轻量签名。 */
+interface DtaFileSignature {
+  /** 文件大小，单位字节。 */
+  size: number
+  /** 文件最后修改时间戳。 */
+  mtime: number
+}
+
 /** 文件解析进度回调。 */
 export type LoadProgressReporter = (rowsRead: number, totalRows: number) => void
 
@@ -64,6 +72,22 @@ export interface TabulateResponse {
 }
 
 /**
+ * 某次加载已经被更新的刷新请求取代。
+ */
+export class StaleDtaLoadError extends Error {
+  constructor() {
+    super('数据加载已被新的刷新请求取代。')
+  }
+}
+
+/**
+ * 判断错误是否来自过期加载。
+ */
+export function isStaleDtaLoadError(error: unknown): error is StaleDtaLoadError {
+  return error instanceof StaleDtaLoadError
+}
+
+/**
  * 单个 DTA 文件的解析和查询会话。
  */
 export class DtaDocumentSession {
@@ -75,6 +99,10 @@ export class DtaDocumentSession {
   private loadingPromise: Promise<LoadedDtaDocument> | null = null
   /** 最近一次读取到的文件信息。 */
   private currentFileInfo: DtaFileInfo | null = null
+  /** 最近一次读取到的文件内容签名。 */
+  private currentFileSignature: DtaFileSignature | null = null
+  /** 加载世代号，刷新时递增，用于识别已经过期的解析任务。 */
+  private loadGeneration = 0
 
   constructor(
     /** 当前自定义编辑器打开的文档 URI。 */
@@ -101,16 +129,35 @@ export class DtaDocumentSession {
    * 文件发生变化或用户手动刷新时调用，下一次访问会重新读取文件。
    */
   public invalidate(): void {
+    this.loadGeneration++
     this.columnar = null
     this.view = null
+    this.loadingPromise = null
   }
 
   /**
    * 读取并缓存当前文件信息。
    */
   public async refreshFileInfo(): Promise<DtaFileInfo> {
-    this.currentFileInfo = await this.readFileInfo()
+    const { info, signature } = await this.readFileInfo()
+    this.currentFileInfo = info
+    this.currentFileSignature = signature
     return this.currentFileInfo
+  }
+
+  /**
+   * 文件内容是否可能已经变化。
+   *
+   * macOS/Finder 有时会触发非内容变化的文件事件；这里用大小和 mtime
+   * 过滤掉这类噪声，避免仅聚焦/失焦文件就重新解析数据。
+   */
+  public async hasFileContentChanged(): Promise<boolean> {
+    if (!this.currentFileSignature)
+      return true
+
+    const signature = await this.readFileSignature()
+    return signature.size !== this.currentFileSignature.size
+      || signature.mtime !== this.currentFileSignature.mtime
   }
 
   /**
@@ -122,21 +169,33 @@ export class DtaDocumentSession {
     if (this.loadingPromise)
       return this.loadingPromise
 
-    this.loadingPromise = (async () => {
-      if (!this.columnar) {
+    const generation = this.loadGeneration
+    const loadingPromise = (async () => {
+      let columnar = this.columnar
+      if (!columnar) {
         const buf = await this.readFileBuffer()
-        this.columnar = await DtaParser.parseColumnarAsync(buf, { onProgress })
+        columnar = await DtaParser.parseColumnarAsync(buf, { onProgress })
+        this.assertFreshLoad(generation)
+        this.columnar = columnar
       }
-      if (!this.view)
-        this.view = new DtaView(this.columnar)
-      return { columnar: this.columnar, view: this.view }
+      this.assertFreshLoad(generation)
+
+      let view = this.view
+      if (!view) {
+        view = new DtaView(columnar)
+        this.assertFreshLoad(generation)
+        this.view = view
+      }
+      return { columnar, view }
     })()
+    this.loadingPromise = loadingPromise
 
     try {
-      return await this.loadingPromise
+      return await loadingPromise
     }
     finally {
-      this.loadingPromise = null
+      if (this.loadingPromise === loadingPromise)
+        this.loadingPromise = null
     }
   }
 
@@ -144,6 +203,7 @@ export class DtaDocumentSession {
    * 重新读取文件信息和完整数据。
    */
   public async reload(onProgress?: LoadProgressReporter): Promise<LoadedDtaDocument> {
+    this.invalidate()
     await this.refreshFileInfo()
     return this.loadAll(onProgress)
   }
@@ -227,16 +287,40 @@ export class DtaDocumentSession {
   /**
    * 读取文件基础信息。
    */
-  private async readFileInfo(): Promise<DtaFileInfo> {
-    const stats = await vscode.workspace.fs.stat(this.uri)
+  private async readFileInfo(): Promise<{ info: DtaFileInfo, signature: DtaFileSignature }> {
+    const stats = await this.statFile()
     const lastModified = new Date(stats.mtime)
     const filePath = this.uri.scheme === 'file' ? this.uri.fsPath : this.uri.toString(true)
     return {
-      fileName: path.basename(filePath),
-      filePath,
-      fileSize: stats.size,
-      lastModified: lastModified.toLocaleString(),
+      info: {
+        fileName: path.basename(filePath),
+        filePath,
+        fileSize: stats.size,
+        lastModified: lastModified.toLocaleString(),
+      },
+      signature: {
+        size: stats.size,
+        mtime: stats.mtime,
+      },
     }
+  }
+
+  /**
+   * 读取文件内容签名。
+   */
+  private async readFileSignature(): Promise<DtaFileSignature> {
+    const stats = await this.statFile()
+    return {
+      size: stats.size,
+      mtime: stats.mtime,
+    }
+  }
+
+  /**
+   * 读取文件 stat 信息。
+   */
+  private async statFile(): Promise<vscode.FileStat> {
+    return vscode.workspace.fs.stat(this.uri)
   }
 
   /**
@@ -250,5 +334,13 @@ export class DtaDocumentSession {
 
     const fileData = await vscode.workspace.fs.readFile(this.uri)
     return Buffer.from(fileData.buffer, fileData.byteOffset, fileData.byteLength)
+  }
+
+  /**
+   * 确认当前加载任务仍然是最新一代。
+   */
+  private assertFreshLoad(generation: number): void {
+    if (generation !== this.loadGeneration)
+      throw new StaleDtaLoadError()
   }
 }
