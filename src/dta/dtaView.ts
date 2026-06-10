@@ -107,14 +107,6 @@ export class DtaView {
   }
 
   /**
-   * 设置排序配置
-   */
-  public setSort(spec: SortSpec[]): void {
-    this.setSortSpec(spec)
-    this.rebuildView()
-  }
-
-  /**
    * 异步设置排序配置。
    *
    * 大文件排序会分块执行，避免长时间占用扩展宿主事件循环。
@@ -122,14 +114,6 @@ export class DtaView {
   public async setSortAsync(spec: SortSpec[], options?: RebuildViewOptions): Promise<void> {
     const generation = this.setSortSpec(spec)
     await this.rebuildViewAsync(generation, options)
-  }
-
-  /**
-   * 设置筛选配置
-   */
-  public setFilter(spec: FilterSpec | null): void {
-    this.setFilterSpec(spec)
-    this.rebuildView()
   }
 
   /**
@@ -230,15 +214,6 @@ export class DtaView {
   }
 
   /**
-   * 重新构建视图
-   */
-  private rebuildView(): void {
-    const arr = this.collectRows(this.compiledFilter)
-    this.sortRows(arr, this.sortSpec)
-    this.indices = Uint32Array.from(arr)
-  }
-
-  /**
    * 异步重新构建视图。
    */
   private async rebuildViewAsync(generation: number, options: RebuildViewOptions = {}): Promise<void> {
@@ -251,29 +226,6 @@ export class DtaView {
     arr = await this.sortRowsAsync(arr, sortSpec, generation, yieldEvery)
     this.assertFreshRebuild(generation)
     this.indices = Uint32Array.from(arr)
-  }
-
-  /**
-   * 按当前筛选器收集行索引。
-   */
-  private collectRows(compiledFilter: CompiledFilter | null): number[] {
-    const N = this.data.meta.nobs
-    let arr: number[]
-
-    if (compiledFilter) {
-      arr = []
-      for (let i = 0; i < N; i++) {
-        if (compiledFilter(i))
-          arr.push(i)
-      }
-    }
-    else {
-      arr = Array.from<number>({ length: N })
-      for (let i = 0; i < N; i++)
-        arr[i] = i
-    }
-
-    return arr
   }
 
   /**
@@ -310,16 +262,6 @@ export class DtaView {
     }
 
     return arr
-  }
-
-  /**
-   * 同步排序行索引。
-   */
-  private sortRows(arr: number[], sortSpec: SortSpec[]): void {
-    if (sortSpec.length === 0)
-      return
-
-    arr.sort(this.createRowComparator(sortSpec))
   }
 
   /**

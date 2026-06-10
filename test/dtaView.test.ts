@@ -3,14 +3,14 @@ import test from 'node:test'
 import { DtaView, StaleDtaViewUpdateError } from '../src/dta/dtaView'
 import { createColumnarFixture } from './helpers/dtaFixture'
 
-test('DtaView 能筛选、排序和分页，并把缺失值输出为空值', () => {
+test('DtaView 能筛选、排序和分页，并把缺失值输出为空值', async () => {
   const view = new DtaView(createColumnarFixture())
 
-  view.setFilter({ query: 'age >= 28 & group == 1' })
+  await view.setFilterAsync({ query: 'age >= 28 & group == 1' }, { yieldEvery: 1 })
   assert.equal(view.totalFiltered, 3)
 
   // score 降序时缺失值应排在有效值之后。
-  view.setSort([{ col: 'score', dir: 'desc' }])
+  await view.setSortAsync([{ col: 'score', dir: 'desc' }], { yieldEvery: 1 })
   const page = view.getPage({ offset: 0, limit: 3, columns: ['id', 'score', 'city'] })
 
   assert.equal(page.totalAll, 5)
@@ -23,10 +23,10 @@ test('DtaView 能筛选、排序和分页，并把缺失值输出为空值', () 
   ])
 })
 
-test('DtaView 会忽略未知排序列并修正分页范围', () => {
+test('DtaView 会忽略未知排序列并修正分页范围', async () => {
   const view = new DtaView(createColumnarFixture())
 
-  view.setSort([{ col: 'does_not_exist', dir: 'asc' }])
+  await view.setSortAsync([{ col: 'does_not_exist', dir: 'asc' }], { yieldEvery: 1 })
   const page = view.getPage({ offset: -10, limit: 2, columns: ['id'] })
 
   assert.equal(page.offset, 0)
@@ -34,7 +34,7 @@ test('DtaView 会忽略未知排序列并修正分页范围', () => {
   assert.deepEqual(page.rows, [[1], [2]])
 })
 
-test('DtaView 异步筛选和排序会得到同步路径相同的结果', async () => {
+test('DtaView 异步筛选和排序会得到稳定结果', async () => {
   const view = new DtaView(createColumnarFixture())
 
   await view.setFilterAsync({ query: 'age >= 28 & group == 1' }, { yieldEvery: 1 })

@@ -72,27 +72,9 @@ export function isDtaExportCancelledError(error: unknown): error is DtaExportCan
 }
 
 /**
- * 将当前视图导出为 CSV。
+ * 异步将当前视图导出为 CSV。
  *
  * CSV 使用 UTF-8 BOM，方便 Excel/WPS 直接识别中文编码。
- */
-export function exportViewToCsv(view: DtaView, columns: string[]): Uint8Array {
-  const chunks: string[] = ['\uFEFF', columns.map(formatCsvCell).join(',')]
-
-  for (let offset = 0; offset < view.totalFiltered; offset += EXPORT_PAGE_SIZE) {
-    const limit = Math.min(EXPORT_PAGE_SIZE, view.totalFiltered - offset)
-    const page = view.getPage({ offset, limit, columns })
-    for (const row of page.rows) {
-      chunks.push('\r\n')
-      chunks.push(row.map(formatCsvCell).join(','))
-    }
-  }
-
-  return Buffer.from(chunks.join(''), 'utf8')
-}
-
-/**
- * 异步将当前视图导出为 CSV。
  */
 export async function exportViewToCsvAsync(
   view: DtaView,
@@ -123,31 +105,9 @@ export async function exportViewToCsvAsync(
 }
 
 /**
- * 将当前视图导出为 XLSX。
+ * 异步将当前视图导出为 XLSX。
  *
  * 这里手动生成最小 OpenXML 工作簿，避免为导出功能引入额外依赖。
- */
-export function exportViewToXlsx(view: DtaView, columns: string[]): Uint8Array {
-  const columnRefs = columns.map((_, i) => xlsxColumnName(i))
-  const sheetParts = createXlsxSheetParts(columns, columnRefs)
-
-  let sheetRow = 2
-  for (let offset = 0; offset < view.totalFiltered; offset += EXPORT_PAGE_SIZE) {
-    const limit = Math.min(EXPORT_PAGE_SIZE, view.totalFiltered - offset)
-    const page = view.getPage({ offset, limit, columns })
-    for (const row of page.rows) {
-      sheetParts.push(formatXlsxRow(sheetRow, row, columnRefs))
-      sheetRow++
-    }
-  }
-
-  sheetParts.push('</sheetData></worksheet>')
-
-  return createZip(createXlsxWorkbookEntries(sheetParts.join('')))
-}
-
-/**
- * 异步将当前视图导出为 XLSX。
  */
 export async function exportViewToXlsxAsync(
   view: DtaView,
@@ -377,23 +337,10 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 /**
- * 创建一个不压缩的 ZIP 文件。
+ * 异步创建一个不压缩的 ZIP 文件。
  *
  * XLSX 本质上是 ZIP 包。这里使用 store 模式写入本地文件头、
  * 中央目录和结束记录，足够承载当前导出的几个 XML 部件。
- */
-function createZip(entries: ZipEntry[]): Uint8Array {
-  const state = createZipBuildState()
-
-  for (const entry of entries) {
-    appendZipEntry(state, entry, crc32(entry.data))
-  }
-
-  return finishZip(state, entries.length)
-}
-
-/**
- * 异步创建一个不压缩的 ZIP 文件。
  */
 async function createZipAsync(entries: ZipEntry[], options: TableExportOptions): Promise<Uint8Array> {
   const state = createZipBuildState()
@@ -501,15 +448,6 @@ for (let i = 0; i < CRC_TABLE.length; i++) {
   for (let k = 0; k < 8; k++)
     c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1)
   CRC_TABLE[i] = c >>> 0
-}
-
-/**
- * 计算 ZIP 条目 CRC32。
- */
-function crc32(data: Uint8Array): number {
-  let crc = 0xFFFFFFFF
-  crc = crc32Update(crc, data, 0, data.length)
-  return (crc ^ 0xFFFFFFFF) >>> 0
 }
 
 /**
