@@ -194,7 +194,10 @@
   "No columns selected.": "未选择任何列。",
   "Excel Workbook": "Excel 工作簿",
   "CSV File": "CSV 文件",
+  "Writing file…": "正在写入文件…",
   "Exported data to {0}": "已导出数据到 {0}",
+  "Packaging workbook…": "正在打包工作簿…",
+  "{0}% · {1} / {2} rows": "{0}% · {1} / {2} 行",
   "Excel export supports up to {0} rows. Use CSV for larger datasets.": "Excel 导出最多支持 {0} 行。更大的数据请使用 CSV。",
   "Excel export supports up to {0} columns. Use CSV for wider datasets.": "Excel 导出最多支持 {0} 列。更宽的数据请使用 CSV。"
 }

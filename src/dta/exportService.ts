@@ -6,10 +6,18 @@
 
 import type * as vscode from 'vscode'
 import type { DtaView } from './dtaView'
+import type { TableExportProgress } from './tableExporter'
 import type { TableExportFormat } from './types'
 import * as path from 'node:path'
 import { l10n, ProgressLocation, Uri, window, workspace } from 'vscode'
-import { EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, exportViewToCsv, exportViewToXlsx } from './tableExporter'
+import {
+  DtaExportCancelledError,
+  EXCEL_MAX_COLUMNS,
+  EXCEL_MAX_ROWS,
+  exportViewToCsvAsync,
+  exportViewToXlsxAsync,
+  isDtaExportCancelledError,
+} from './tableExporter'
 
 /** 导出当前表格视图所需的参数。 */
 export interface ExportDtaViewOptions {
@@ -44,22 +52,70 @@ export async function exportDtaView(options: ExportDtaViewOptions): Promise<vsco
   if (!saveUri)
     return null
 
-  const bytes = await window.withProgress({
-    location: ProgressLocation.Notification,
-    title: l10n.t('Exporting data…'),
-    cancellable: false,
-  }, async () => {
-    return format === 'xlsx'
-      ? exportViewToXlsx(view, columns)
-      : exportViewToCsv(view, columns)
-  })
+  try {
+    await window.withProgress({
+      location: ProgressLocation.Notification,
+      title: l10n.t('Export data'),
+      cancellable: true,
+    }, async (progress, token) => {
+      const reportProgress = createExportProgressReporter(progress)
+      const bytes = format === 'xlsx'
+        ? await exportViewToXlsxAsync(view, columns, {
+            onProgress: reportProgress,
+            shouldCancel: () => token.isCancellationRequested,
+          })
+        : await exportViewToCsvAsync(view, columns, {
+            onProgress: reportProgress,
+            shouldCancel: () => token.isCancellationRequested,
+          })
 
-  await workspace.fs.writeFile(saveUri, bytes)
+      if (token.isCancellationRequested)
+        throw new DtaExportCancelledError()
+
+      progress.report({ message: l10n.t('Writing file…') })
+      await workspace.fs.writeFile(saveUri, bytes)
+    })
+  }
+  catch (e) {
+    if (isDtaExportCancelledError(e))
+      return null
+    throw e
+  }
+
   void window.showInformationMessage(l10n.t(
     'Exported data to {0}',
     formatUriForDisplay(saveUri),
   ))
   return saveUri
+}
+
+/**
+ * 生成 VS Code 进度通知回调。
+ */
+function createExportProgressReporter(
+  progress: vscode.Progress<{ message?: string, increment?: number }>,
+): (state: TableExportProgress) => void {
+  let lastPercent = 0
+  return (state) => {
+    if (state.phase === 'packaging') {
+      progress.report({ message: l10n.t('Packaging workbook…') })
+      return
+    }
+
+    const percent = state.totalRows > 0
+      ? Math.min(100, (state.processedRows / state.totalRows) * 100)
+      : 100
+    progress.report({
+      increment: Math.max(0, percent - lastPercent),
+      message: l10n.t(
+        '{0}% · {1} / {2} rows',
+        percent.toFixed(0),
+        state.processedRows.toLocaleString(),
+        state.totalRows.toLocaleString(),
+      ),
+    })
+    lastPercent = percent
+  }
 }
 
 /**

@@ -194,7 +194,10 @@
   "No columns selected.": "No columns selected.",
   "Excel Workbook": "Excel Workbook",
   "CSV File": "CSV File",
+  "Writing file…": "Writing file…",
   "Exported data to {0}": "Exported data to {0}",
+  "Packaging workbook…": "Packaging workbook…",
+  "{0}% · {1} / {2} rows": "{0}% · {1} / {2} rows",
   "Excel export supports up to {0} rows. Use CSV for larger datasets.": "Excel export supports up to {0} rows. Use CSV for larger datasets.",
   "Excel export supports up to {0} columns. Use CSV for wider datasets.": "Excel export supports up to {0} columns. Use CSV for wider datasets."
 }
