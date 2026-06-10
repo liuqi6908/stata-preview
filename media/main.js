@@ -48,6 +48,18 @@
   let sidebarPosition = 'right'
   /** 表头右键菜单 */
   let headerContextMenu = null
+  /** 变量搜索用的规范化文本缓存 */
+  let variableSearchText = []
+  /** 当前变量搜索表达式 */
+  let variableSearchQuery = ''
+  /** 当前变量搜索命中的变量下标 */
+  let filteredVariableIndices = []
+  /** 变量项高度估计值，首次渲染后会用真实高度修正 */
+  let estVariableItemHeight = 40
+  /** 变量列表视口上下额外渲染的项数 */
+  const VARIABLE_OVERSCAN = 8
+  /** 是否已有一次变量列表滚动重绘排队 */
+  let variableScrollScheduled = false
 
   // ---------- 表格虚拟滚动 ----------
 
@@ -228,7 +240,9 @@
     pageOffset = payload.page.offset
     totalFiltered = payload.page.totalFiltered
     totalAll = payload.page.totalAll
-    visibleColumns = new Set(meta.headers.map((_, i) => i))
+    visibleColumns = createAllColumnSet()
+    variableSearchText = meta.headers.map((header, i) => `${header} ${meta.labels[i] || ''}`.toLowerCase())
+    variableSearchQuery = ''
     colWidths = {}
     sortSpec = []
     filterQuery = ''
@@ -1004,47 +1018,127 @@
   /**
    * 渲染变量列表
    */
-  function renderSidebar() {
-    variableList.innerHTML = ''
-    meta.headers.forEach((header, i) => {
-      const label = meta.labels[i]
-      const div = document.createElement('div')
-      div.className = 'variable-item'
-
-      const info = document.createElement('div')
-      info.className = 'variable-info'
-
-      const checkbox = document.createElement('input')
-      checkbox.type = 'checkbox'
-      checkbox.checked = visibleColumns.has(i)
-      checkbox.addEventListener('change', (e) => {
-        if (e.target.checked)
-          visibleColumns.add(i)
-        else
-          visibleColumns.delete(i)
-        renderHeader()
-        renderBody()
-        updateBulkActions()
-      })
-
-      const text = document.createElement('label')
-      text.textContent = header + (label ? ` (${label})` : '')
-      text.title = label || header
-      text.onclick = () => checkbox.click()
-
-      info.appendChild(checkbox)
-      info.appendChild(text)
-
-      const btn = document.createElement('button')
-      btn.className = 'outline'
-      btn.textContent = bootstrap.l10n.Explore
-      btn.onclick = () => openExplorer(i)
-
-      div.appendChild(info)
-      div.appendChild(btn)
-      variableList.appendChild(div)
-    })
+  function renderSidebar(options = {}) {
+    rebuildFilteredVariableIndices()
+    if (options.resetScroll)
+      variableList.scrollTop = 0
+    renderVariableListWindow()
     updateBulkActions()
+  }
+
+  /**
+   * 重建当前变量搜索结果。
+   */
+  function rebuildFilteredVariableIndices() {
+    const total = meta ? meta.headers.length : 0
+    filteredVariableIndices = []
+    if (!variableSearchQuery) {
+      for (let i = 0; i < total; i++)
+        filteredVariableIndices.push(i)
+      return
+    }
+
+    for (let i = 0; i < total; i++) {
+      if (variableSearchText[i].includes(variableSearchQuery))
+        filteredVariableIndices.push(i)
+    }
+  }
+
+  /**
+   * 渲染变量列表当前可见窗口。
+   */
+  function renderVariableListWindow() {
+    const scrollTop = variableList.scrollTop
+    variableList.innerHTML = ''
+    const total = filteredVariableIndices.length
+    if (total === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'variable-empty'
+      empty.textContent = bootstrap.l10n.NoData
+      variableList.appendChild(empty)
+      return
+    }
+
+    const viewportHeight = variableList.clientHeight || 320
+    const start = Math.max(0, Math.floor(scrollTop / estVariableItemHeight) - VARIABLE_OVERSCAN)
+    const visibleCount = Math.ceil(viewportHeight / estVariableItemHeight) + VARIABLE_OVERSCAN * 2
+    const end = Math.min(total, start + visibleCount)
+    const topH = start * estVariableItemHeight
+    const bottomH = (total - end) * estVariableItemHeight
+
+    const fragment = document.createDocumentFragment()
+    if (topH > 0)
+      fragment.appendChild(variableSpacer(topH))
+    for (let r = start; r < end; r++) {
+      fragment.appendChild(buildVariableItem(filteredVariableIndices[r]))
+    }
+    if (bottomH > 0)
+      fragment.appendChild(variableSpacer(bottomH))
+
+    variableList.appendChild(fragment)
+    variableList.scrollTop = scrollTop
+
+    const sampleItem = variableList.querySelector('.variable-item')
+    if (sampleItem) {
+      const h = sampleItem.getBoundingClientRect().height
+      if (h > 0 && Math.abs(h - estVariableItemHeight) > 1) {
+        estVariableItemHeight = h
+        renderVariableListWindow()
+      }
+    }
+  }
+
+  /**
+   * 构建变量列表占位元素。
+   */
+  function variableSpacer(height) {
+    const spacer = document.createElement('div')
+    spacer.className = 'variable-spacer'
+    spacer.style.height = `${height}px`
+    return spacer
+  }
+
+  /**
+   * 构建单个变量项。
+   */
+  function buildVariableItem(i) {
+    const header = meta.headers[i]
+    const label = meta.labels[i]
+    const div = document.createElement('div')
+    div.className = 'variable-item'
+
+    const info = document.createElement('div')
+    info.className = 'variable-info'
+
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.checked = visibleColumns.has(i)
+    checkbox.addEventListener('change', (e) => {
+      if (e.target.checked)
+        visibleColumns.add(i)
+      else
+        visibleColumns.delete(i)
+      renderHeader()
+      renderBody()
+      updateBulkActions()
+    })
+
+    const text = document.createElement('label')
+    text.textContent = header + (label ? ` (${label})` : '')
+    text.title = label || header
+    text.onclick = () => checkbox.click()
+
+    info.appendChild(checkbox)
+    info.appendChild(text)
+
+    const btn = document.createElement('button')
+    btn.className = 'outline'
+    btn.textContent = bootstrap.l10n.Explore
+    btn.onclick = () => openExplorer(i)
+
+    div.appendChild(info)
+    div.appendChild(btn)
+    return div
   }
 
   /**
@@ -1059,8 +1153,18 @@
     deselectAllVariables.style.display = selected > 0 ? '' : 'none'
   }
 
+  /**
+   * 创建包含全部变量下标的集合。
+   */
+  function createAllColumnSet() {
+    const all = new Set()
+    for (let i = 0; i < meta.headers.length; i++)
+      all.add(i)
+    return all
+  }
+
   selectAllVariables.addEventListener('click', () => {
-    visibleColumns = new Set(meta.headers.map((_, i) => i))
+    visibleColumns = createAllColumnSet()
     renderSidebar()
     renderHeader()
     renderBody()
@@ -1073,9 +1177,16 @@
   })
 
   variableSearch.addEventListener('input', (e) => {
-    const query = e.target.value.toLowerCase()
-    variableList.querySelectorAll('.variable-item').forEach((item) => {
-      item.style.display = item.textContent.toLowerCase().includes(query) ? '' : 'none'
+    variableSearchQuery = e.target.value.trim().toLowerCase()
+    renderSidebar({ resetScroll: true })
+  })
+  variableList.addEventListener('scroll', () => {
+    if (variableScrollScheduled)
+      return
+    variableScrollScheduled = true
+    requestAnimationFrame(() => {
+      variableScrollScheduled = false
+      renderVariableListWindow()
     })
   })
 

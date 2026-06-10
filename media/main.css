@@ -879,6 +879,15 @@ table {
     padding: 6px 4px;
     overflow-y: auto;
 
+    & .variable-spacer {
+      flex: none;
+    }
+
+    & .variable-empty {
+      padding: 10px 8px;
+      color: var(--vscode-descriptionForeground);
+    }
+
     & .variable-item {
       padding: 4px 6px;
       display: flex;

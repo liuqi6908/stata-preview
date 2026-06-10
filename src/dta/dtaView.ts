@@ -56,6 +56,7 @@ export function isStaleDtaViewUpdateError(error: unknown): error is StaleDtaView
 export class DtaView {
   private data: DtaColumnar
   private readonly headerIndex: Map<string, number>
+  private readonly pageColumns: PageColumn[]
   private sortSpec: SortSpec[] = []
   private filterSpec: FilterSpec | null = null
   private indices: Uint32Array
@@ -65,6 +66,12 @@ export class DtaView {
   constructor(data: DtaColumnar) {
     this.data = data
     this.headerIndex = new Map(data.meta.headers.map((h, j) => [h, j]))
+    this.pageColumns = data.meta.headers.map((h, j) => ({
+      col: data.columns[h],
+      miss: data.missing[h],
+      type: data.meta.types[j],
+      isString: Array.isArray(data.columns[h]),
+    }))
     const N = data.meta.nobs
     this.indices = new Uint32Array(N)
     for (let i = 0; i < N; i++)
@@ -160,22 +167,13 @@ export class DtaView {
     const offset = Math.max(0, Math.min(req.offset, total))
     const limit = Math.max(0, Math.min(req.limit, total - offset))
 
-    const headers = this.data.meta.headers
-    const types = this.data.meta.types
-    const selectedHeaders = req.columns
-      ? req.columns.filter(h => this.headerIndex.has(h))
-      : headers
-    const K = selectedHeaders.length
-
-    const cols: PageColumn[] = selectedHeaders.map((h) => {
-      const j = this.headerIndex.get(h)!
-      return {
-        col: this.data.columns[h],
-        miss: this.data.missing[h],
-        type: types[j],
-        isString: Array.isArray(this.data.columns[h]),
-      }
-    })
+    const cols = req.columns
+      ? req.columns
+          .map(h => this.headerIndex.get(h))
+          .filter((j): j is number => j !== undefined)
+          .map(j => this.pageColumns[j])
+      : this.pageColumns
+    const K = cols.length
 
     const rows = Array.from<any[]>({ length: limit })
     const rowIndices = Array.from<number>({ length: limit })
