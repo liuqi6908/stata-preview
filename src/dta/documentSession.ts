@@ -221,7 +221,7 @@ export class DtaDocumentSession {
    */
   public async setSort(spec: SortSpec[]): Promise<DtaView> {
     const { view } = await this.loadAll()
-    view.setSort(spec)
+    await view.setSortAsync(spec)
     return view
   }
 
@@ -230,7 +230,7 @@ export class DtaDocumentSession {
    */
   public async setFilter(spec: FilterSpec | null): Promise<DtaView> {
     const { view } = await this.loadAll()
-    view.setFilter(spec)
+    await view.setFilterAsync(spec)
     return view
   }
 

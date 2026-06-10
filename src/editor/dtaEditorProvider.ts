@@ -11,6 +11,7 @@ import type { FilterSpec, SortSpec, TableExportFormat } from '../dta/types'
 import * as vscode from 'vscode'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../constants'
 import { DtaDocumentSession, isStaleDtaLoadError } from '../dta/documentSession'
+import { isStaleDtaViewUpdateError } from '../dta/dtaView'
 import { exportDtaView, formatUriForDisplay } from '../dta/exportService'
 import { FilterCompileError } from '../dta/filterCompiler'
 import { renderDtaWebviewHtml } from '../webview/html'
@@ -20,6 +21,13 @@ import { renderDtaWebviewHtml } from '../webview/html'
  */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 过期的加载或视图计算都已被更新请求取代，不需要向用户展示。
+ */
+function isStaleDtaWorkError(error: unknown): boolean {
+  return isStaleDtaLoadError(error) || isStaleDtaViewUpdateError(error)
 }
 
 /**
@@ -56,10 +64,10 @@ function escapeGlobSegment(segment: string): string {
 }
 
 /**
- * 发送加载错误；过期加载会被新的刷新取代，不需要展示。
+ * 发送加载错误；过期任务会被更新请求取代，不需要展示。
  */
 function postLoadError(webviewPanel: vscode.WebviewPanel, error: unknown): void {
-  if (isStaleDtaLoadError(error))
+  if (isStaleDtaWorkError(error))
     return
   webviewPanel.webview.postMessage({
     command: 'loadError',
@@ -250,7 +258,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         }
       }
       catch (e) {
-        if (isStaleDtaLoadError(e)) {
+        if (isStaleDtaWorkError(e)) {
           if (message.requestId) {
             webviewPanel.webview.postMessage({
               command: 'error',
@@ -336,7 +344,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       })
     }
     catch (e) {
-      if (isStaleDtaLoadError(e))
+      if (isStaleDtaWorkError(e))
         throw e
       const msg = e instanceof FilterCompileError ? e.message : errorMessage(e)
       webviewPanel.webview.postMessage({
