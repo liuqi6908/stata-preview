@@ -86,6 +86,13 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
         closeTitle,
       })}
       ${renderModal({
+        id: 'dictionary-modal',
+        title: l10n.t('Variable dictionary'),
+        bodyId: 'dictionary-body',
+        closeButtonId: 'close-dictionary',
+        closeTitle,
+      })}
+      ${renderModal({
         id: 'explorer-modal',
         title: '',
         titleId: 'explorer-variable',

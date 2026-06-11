@@ -59,6 +59,16 @@ export interface TableExportOptions {
   shouldCancel?: () => boolean
 }
 
+/** 通用行导出数据源。 */
+export interface RowExportSource {
+  /** 导出表头。 */
+  columns: string[]
+  /** 导出数据行数，不包含表头。 */
+  totalRows: number
+  /** 按偏移和数量读取导出行。 */
+  getRows: (offset: number, limit: number) => unknown[][] | Promise<unknown[][]>
+}
+
 /** 导出已被用户取消。 */
 export class DtaExportCancelledError extends Error {
   constructor() {
@@ -81,21 +91,31 @@ export async function exportViewToCsvAsync(
   columns: string[],
   options: TableExportOptions = {},
 ): Promise<Uint8Array> {
+  return exportRowsToCsvAsync(createViewExportSource(view, columns), options)
+}
+
+/**
+ * 异步将通用行源导出为 CSV。
+ */
+export async function exportRowsToCsvAsync(
+  source: RowExportSource,
+  options: TableExportOptions = {},
+): Promise<Uint8Array> {
   const pageSize = normalizeExportPageSize(options.pageSize)
-  const chunks: string[] = ['\uFEFF', columns.map(formatCsvCell).join(',')]
-  const totalRows = view.totalFiltered
+  const chunks: string[] = ['\uFEFF', source.columns.map(formatCsvCell).join(',')]
+  const totalRows = source.totalRows
   let processedRows = 0
   reportExportProgress(options, processedRows, totalRows, 'rows')
 
   for (let offset = 0; offset < totalRows; offset += pageSize) {
     assertExportNotCancelled(options)
     const limit = Math.min(pageSize, totalRows - offset)
-    const page = view.getPage({ offset, limit, columns })
-    for (const row of page.rows) {
+    const rows = await source.getRows(offset, limit)
+    for (const row of rows) {
       chunks.push('\r\n')
       chunks.push(row.map(formatCsvCell).join(','))
     }
-    processedRows += page.rows.length
+    processedRows += rows.length
     reportExportProgress(options, processedRows, totalRows, 'rows')
     await yieldToEventLoop()
   }
@@ -114,10 +134,20 @@ export async function exportViewToXlsxAsync(
   columns: string[],
   options: TableExportOptions = {},
 ): Promise<Uint8Array> {
+  return exportRowsToXlsxAsync(createViewExportSource(view, columns), options)
+}
+
+/**
+ * 异步将通用行源导出为 XLSX。
+ */
+export async function exportRowsToXlsxAsync(
+  source: RowExportSource,
+  options: TableExportOptions = {},
+): Promise<Uint8Array> {
   const pageSize = normalizeExportPageSize(options.pageSize)
-  const columnRefs = columns.map((_, i) => xlsxColumnName(i))
-  const sheetParts = createXlsxSheetParts(columns, columnRefs)
-  const totalRows = view.totalFiltered
+  const columnRefs = source.columns.map((_, i) => xlsxColumnName(i))
+  const sheetParts = createXlsxSheetParts(source.columns, columnRefs)
+  const totalRows = source.totalRows
   let processedRows = 0
   let sheetRow = 2
   reportExportProgress(options, processedRows, totalRows, 'rows')
@@ -125,12 +155,12 @@ export async function exportViewToXlsxAsync(
   for (let offset = 0; offset < totalRows; offset += pageSize) {
     assertExportNotCancelled(options)
     const limit = Math.min(pageSize, totalRows - offset)
-    const page = view.getPage({ offset, limit, columns })
-    for (const row of page.rows) {
+    const rows = await source.getRows(offset, limit)
+    for (const row of rows) {
       sheetParts.push(formatXlsxRow(sheetRow, row, columnRefs))
       sheetRow++
     }
-    processedRows += page.rows.length
+    processedRows += rows.length
     reportExportProgress(options, processedRows, totalRows, 'rows')
     await yieldToEventLoop()
   }
@@ -141,6 +171,17 @@ export async function exportViewToXlsxAsync(
   await yieldToEventLoop()
 
   return createZipAsync(createXlsxWorkbookEntries(sheetParts.join('')), options)
+}
+
+/**
+ * 将 DtaView 包装为通用行导出源。
+ */
+function createViewExportSource(view: DtaView, columns: string[]): RowExportSource {
+  return {
+    columns,
+    totalRows: view.totalFiltered,
+    getRows: (offset, limit) => view.getPage({ offset, limit, columns }).rows,
+  }
 }
 
 /**

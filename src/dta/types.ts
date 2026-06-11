@@ -132,6 +132,8 @@ export interface DiscreteTab {
   nValid: number
   /** 缺失观测数。 */
   nMissing: number
+  /** 唯一值数量。 */
+  nUnique: number
   /** 按值统计的频数、百分比和累计百分比。 */
   entries: { value: any, label?: string, freq: number, pct: number, cum: number }[]
 }
@@ -171,7 +173,7 @@ export interface ContinuousTab {
   chart:
     | { type: 'histogram', bins: { bin: number, lo: number, hi: number, count: number }[] }
     | { type: 'bars', bars: { value: number, count: number }[] }
-  /** 唯一值数量；超过统计上限时为 -1。 */
+  /** 唯一值数量。 */
   nUnique: number
 }
 
@@ -196,6 +198,26 @@ export interface StringTab {
 
 /** 单变量汇总结果。 */
 export type TabulateResult = DiscreteTab | ContinuousTab | StringTab
+
+/** 变量字典中的单个变量摘要。 */
+export interface VariableDictionaryEntry {
+  /** 序号。 */
+  index: number
+  /** 变量名。 */
+  name: string
+  /** 变量标签。 */
+  label: string
+  /** 变量类型。 */
+  type: string
+  /** 统计类型。 */
+  statType: TabulateResult['kind']
+  /** 非缺失观测数。 */
+  nValid: number
+  /** 缺失值数量。 */
+  nMissing: number
+  /** 唯一非缺失值数量。 */
+  nUnique: number
+}
 
 /** 表格导出格式。 */
 export type TableExportFormat = 'csv' | 'xlsx'

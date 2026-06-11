@@ -4,6 +4,7 @@ import test from 'node:test'
 import { DtaView } from '../src/dta/dtaView'
 import {
   DtaExportCancelledError,
+  exportRowsToCsvAsync,
   exportViewToCsvAsync,
   exportViewToXlsxAsync,
 } from '../src/dta/tableExporter'
@@ -32,6 +33,26 @@ test('CSV 异步导出会按分页报告进度', async () => {
 
   assert.ok(csv.startsWith('\uFEFFid'))
   assert.deepEqual(rows, [0, 2, 4, 5])
+})
+
+test('CSV 通用行源导出会按分页读取行', async () => {
+  const offsets: number[] = []
+  const csv = Buffer.from(await exportRowsToCsvAsync({
+    columns: ['name', 'unique'],
+    totalRows: 3,
+    getRows(offset, limit) {
+      offsets.push(offset)
+      return [
+        ['id', 5],
+        ['group', 2],
+        ['city', 4],
+      ].slice(offset, offset + limit)
+    },
+  }, { pageSize: 2 })).toString('utf8')
+
+  assert.ok(csv.startsWith('\uFEFFname,unique'))
+  assert.match(csv, /group,2/)
+  assert.deepEqual(offsets, [0, 2])
 })
 
 test('导出取消时会抛出取消错误', async () => {

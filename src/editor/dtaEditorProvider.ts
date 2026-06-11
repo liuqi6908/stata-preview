@@ -12,7 +12,7 @@ import * as vscode from 'vscode'
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../constants'
 import { DtaDocumentSession, isStaleDtaLoadError } from '../dta/documentSession'
 import { isStaleDtaViewUpdateError } from '../dta/dtaView'
-import { exportDtaView, formatUriForDisplay } from '../dta/exportService'
+import { exportDtaView, exportVariableDictionary, formatUriForDisplay } from '../dta/exportService'
 import { FilterCompileError } from '../dta/filterCompiler'
 import { renderDtaWebviewHtml } from '../webview/html'
 
@@ -216,7 +216,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     watcher.onDidChange(reloadChangedFile)
     watcher.onDidCreate(reloadChangedFile)
 
-    // Webview 消息入口：处理刷新、分页、排序、筛选、变量汇总和导出。
+    // Webview 消息入口：处理刷新、分页、排序、筛选、变量汇总、变量字典和导出。
     webviewPanel.webview.onDidReceiveMessage(async (message) => {
       if (message.command === 'ready') {
         markWebviewReady()
@@ -230,6 +230,14 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         }
         else if (message.command === 'tabulate') {
           await this.handleTabulateMessage(webviewPanel, session, message)
+        }
+        else if (message.command === 'getVariableDictionary') {
+          const entries = await session.getVariableDictionary()
+          webviewPanel.webview.postMessage({
+            command: 'variableDictionaryResult',
+            requestId: message.requestId,
+            entries,
+          })
         }
         else if (message.command === 'getPage') {
           const offset = Math.max(0, message.offset | 0)
@@ -256,6 +264,9 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         else if (message.command === 'exportData') {
           await this.handleExportMessage(document.uri, webviewPanel, session, message)
         }
+        else if (message.command === 'exportVariableDictionary') {
+          await this.handleExportVariableDictionaryMessage(document.uri, webviewPanel, session, message)
+        }
       }
       catch (e) {
         if (isStaleDtaWorkError(e)) {
@@ -272,7 +283,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
         // 所有命令共享的兜底错误响应，避免 Webview 请求悬空。
         const msg = errorMessage(e)
-        if (message.command === 'exportData')
+        if (message.command === 'exportData' || message.command === 'exportVariableDictionary')
           void vscode.window.showErrorMessage(msg)
         webviewPanel.webview.postMessage({
           command: 'error',
@@ -376,6 +387,31 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       view,
       format,
       columns,
+    })
+    webviewPanel.webview.postMessage({
+      command: 'exportResult',
+      requestId: message.requestId,
+      cancelled: !savedUri,
+      path: savedUri ? formatUriForDisplay(savedUri) : null,
+    })
+  }
+
+  /**
+   * 处理变量字典导出消息。
+   */
+  private async handleExportVariableDictionaryMessage(
+    sourceUri: vscode.Uri,
+    webviewPanel: vscode.WebviewPanel,
+    session: DtaDocumentSession,
+    message: any,
+  ): Promise<void> {
+    const entries = await session.getVariableDictionary()
+    const format: TableExportFormat = message.format === 'xlsx' ? 'xlsx' : 'csv'
+
+    const savedUri = await exportVariableDictionary({
+      sourceUri,
+      entries,
+      format,
     })
     webviewPanel.webview.postMessage({
       command: 'exportResult',

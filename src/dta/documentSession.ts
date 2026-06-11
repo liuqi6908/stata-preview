@@ -8,7 +8,7 @@
  *   - 组合变量汇总的通用筛选与临时筛选。
  */
 
-import type { DtaColumnar, FilterSpec, PageResult, SortSpec, TabulateResult } from './types'
+import type { DtaColumnar, FilterSpec, PageResult, SortSpec, TabulateResult, VariableDictionaryEntry } from './types'
 import { Buffer } from 'node:buffer'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -16,7 +16,7 @@ import * as vscode from 'vscode'
 import { DtaView } from './dtaView'
 import { compileFilter } from './filterCompiler'
 import { DtaParser } from './parser'
-import { tabulateColumnar } from './tabulator'
+import { buildVariableDictionaryAsync, tabulateColumnar } from './tabulator'
 
 /** 文件信息弹窗和 Webview 初始化所需的文件元数据。 */
 export interface DtaFileInfo {
@@ -95,6 +95,10 @@ export class DtaDocumentSession {
   private columnar: DtaColumnar | null = null
   /** 当前查询视图。 */
   private view: DtaView | null = null
+  /** 缓存后的变量字典摘要。 */
+  private variableDictionary: VariableDictionaryEntry[] | null = null
+  /** 正在构建的变量字典任务，用于合并并发请求。 */
+  private variableDictionaryPromise: Promise<VariableDictionaryEntry[]> | null = null
   /** 正在进行的加载任务，用于合并并发请求。 */
   private loadingPromise: Promise<LoadedDtaDocument> | null = null
   /** 最近一次读取到的文件信息。 */
@@ -132,6 +136,8 @@ export class DtaDocumentSession {
     this.loadGeneration++
     this.columnar = null
     this.view = null
+    this.variableDictionary = null
+    this.variableDictionaryPromise = null
     this.loadingPromise = null
   }
 
@@ -281,6 +287,37 @@ export class DtaDocumentSession {
       scopeN: indices ? indices.length : view.totalAll,
       usedExplorerFilter: !!(explorerExpr && explorerExpr.trim()),
       usedGeneralFilter: inheritGeneral,
+    }
+  }
+
+  /**
+   * 获取完整变量字典摘要。
+   */
+  public async getVariableDictionary(): Promise<VariableDictionaryEntry[]> {
+    if (this.variableDictionary)
+      return this.variableDictionary
+    if (this.variableDictionaryPromise)
+      return this.variableDictionaryPromise
+
+    const generation = this.loadGeneration
+    const { columnar } = await this.loadAll()
+    this.assertFreshLoad(generation)
+
+    const dictionaryPromise = buildVariableDictionaryAsync(columnar, {
+      checkCancelled: () => this.assertFreshLoad(generation),
+    }).then((entries) => {
+      this.assertFreshLoad(generation)
+      this.variableDictionary = entries
+      return entries
+    })
+    this.variableDictionaryPromise = dictionaryPromise
+
+    try {
+      return await dictionaryPromise
+    }
+    finally {
+      if (this.variableDictionaryPromise === dictionaryPromise)
+        this.variableDictionaryPromise = null
     }
   }
 
