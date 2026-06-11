@@ -256,6 +256,14 @@ function renderSidebar(): string {
         <input id="variable-search" type="text" placeholder="${l10n.t('Filter variables...')}">
       </div>
       <div id="sidebar-options">
+        <div id="value-label-mode-wrap" title="${l10n.t('Value label display mode')}">
+          <span class="sidebar-option-label">${l10n.t('Value label display mode')}</span>
+          <div id="value-label-mode" class="segmented-control">
+            <button type="button" class="segmented-option active" data-value-label-mode="raw">${l10n.t('Raw')}</button>
+            <button type="button" class="segmented-option" data-value-label-mode="label">${l10n.t('Label')}</button>
+            <button type="button" class="segmented-option" data-value-label-mode="both">${l10n.t('Raw + label')}</button>
+          </div>
+        </div>
         <label id="highlight-missing-wrap" title="${l10n.t('Highlight missing values')}">
           <input id="highlight-missing" type="checkbox">
           <span>${l10n.t('Highlight missing')}</span>

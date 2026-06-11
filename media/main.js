@@ -14,6 +14,10 @@
   let meta = null
   /** 当前分页大小 */
   let pageSize = bootstrap.pageSize || 1000
+  /** 值标签显示模式 */
+  let valueLabelDisplayMode = 'raw'
+  /** 可用的值标签显示模式 */
+  const VALUE_LABEL_DISPLAY_MODES = new Set(['raw', 'label', 'both'])
   /** 当前页行数据 */
   let currentPageRows = []
   /** 当前过滤后的总行数 */
@@ -38,6 +42,10 @@
   const DEFAULT_COL_WIDTH = 140
   /** 字符串列默认更宽 */
   const DEFAULT_STR_COL_WIDTH = 240
+  /** 仅显示值标签时的默认列宽 */
+  const DEFAULT_LABEL_COL_WIDTH = 220
+  /** 同时显示原始值和值标签时的默认列宽 */
+  const DEFAULT_VALUE_LABEL_COL_WIDTH = 280
   /** 多列排序配置 */
   let sortSpec = []
   /** 当前通用过滤表达式 */
@@ -137,6 +145,9 @@
   const searchApply = document.getElementById('search-apply')
   const searchClear = document.getElementById('search-clear')
   const filterError = document.getElementById('filter-error')
+  const valueLabelModeWrap = document.getElementById('value-label-mode-wrap')
+  const valueLabelModeControl = document.getElementById('value-label-mode')
+  const valueLabelModeButtons = Array.from(valueLabelModeControl.querySelectorAll('[data-value-label-mode]'))
   const toggleSidebar = document.getElementById('toggle-sidebar')
   const toggleSidebarControl = document.getElementById('toggle-sidebar-control')
   const exportData = document.getElementById('export-data')
@@ -190,6 +201,7 @@
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
+  updateValueLabelModeControl()
   updateSidebarToggle()
   updateSidebarPositionButton()
 
@@ -236,6 +248,9 @@
     if (payload.fileInfo)
       fileInfoState = { ...fileInfoState, ...payload.fileInfo }
     meta = payload.meta
+    meta.valueLabels = normalizeValueLabels(meta.valueLabels)
+    if (!hasAnyValueLabels())
+      valueLabelDisplayMode = 'raw'
     currentPageRows = payload.page.rows
     pageOffset = payload.page.offset
     totalFiltered = payload.page.totalFiltered
@@ -247,6 +262,7 @@
     sortSpec = []
     filterQuery = ''
     searchInput.value = ''
+    updateValueLabelModeControl()
     renderSidebar()
     renderTable()
     renderPaginationBar()
@@ -367,6 +383,95 @@
    */
   function formatL10n(template, ...args) {
     return String(template).replace(/\{(\d+)\}/g, (_, i) => args[Number(i)] ?? '')
+  }
+
+  /**
+   * 规范化宿主下发的值标签映射。
+   */
+  function normalizeValueLabels(valueLabels) {
+    return valueLabels && typeof valueLabels === 'object' ? valueLabels : {}
+  }
+
+  /**
+   * 规范化值标签显示模式。
+   */
+  function normalizeValueLabelDisplayMode(mode) {
+    return VALUE_LABEL_DISPLAY_MODES.has(mode) ? mode : 'raw'
+  }
+
+  /**
+   * 获取指定列的值标签表。
+   */
+  function getValueLabelMap(colIndex) {
+    if (!meta)
+      return null
+    const header = meta.headers[colIndex]
+    const labelMap = meta.valueLabels && meta.valueLabels[header]
+    return labelMap && typeof labelMap === 'object' ? labelMap : null
+  }
+
+  /**
+   * 指定列是否绑定了值标签。
+   */
+  function hasValueLabelColumn(colIndex) {
+    const labelMap = getValueLabelMap(colIndex)
+    return !!labelMap && Object.keys(labelMap).length > 0
+  }
+
+  /**
+   * 当前数据集是否包含任意值标签。
+   */
+  function hasAnyValueLabels() {
+    if (!meta || !meta.valueLabels)
+      return false
+    return Object.values(meta.valueLabels).some(labelMap =>
+      labelMap && typeof labelMap === 'object' && Object.keys(labelMap).length > 0,
+    )
+  }
+
+  /**
+   * 查找单元格原始值对应的值标签。
+   */
+  function getValueLabelForCell(labelMap, rawValue) {
+    if (!labelMap || isMissingCellValue(rawValue))
+      return null
+    const key = String(rawValue)
+    if (!Object.hasOwn(labelMap, key))
+      return null
+    const label = labelMap[key]
+    if (label === null || label === undefined)
+      return null
+    const text = String(label)
+    return text.length > 0 ? text : null
+  }
+
+  /**
+   * 按当前显示模式格式化单元格文本。
+   */
+  function formatCellDisplayValue(rawValue, labelMap) {
+    const rawText = String(rawValue)
+    const label = getValueLabelForCell(labelMap, rawValue)
+    if (!label || valueLabelDisplayMode === 'raw')
+      return rawText
+    if (valueLabelDisplayMode === 'label')
+      return label
+    return `${rawText} (${label})`
+  }
+
+  /**
+   * 同步值标签模式控件状态。
+   */
+  function updateValueLabelModeControl() {
+    const enabled = hasAnyValueLabels()
+    valueLabelModeWrap.title = enabled
+      ? bootstrap.l10n.ValueLabelModeTitle
+      : bootstrap.l10n.NoValueLabelsInDataset
+    for (const button of valueLabelModeButtons) {
+      const mode = normalizeValueLabelDisplayMode(button.dataset.valueLabelMode)
+      const active = mode === valueLabelDisplayMode
+      button.disabled = !enabled
+      button.classList.toggle('active', active)
+    }
   }
 
   pageFirst.addEventListener('click', () => loadPage(0))
@@ -782,6 +887,12 @@
    * 获取默认列宽
    */
   function defaultColWidth(i) {
+    if (hasValueLabelColumn(i)) {
+      if (valueLabelDisplayMode === 'label')
+        return DEFAULT_LABEL_COL_WIDTH
+      if (valueLabelDisplayMode === 'both')
+        return DEFAULT_VALUE_LABEL_COL_WIDTH
+    }
     const t = meta.types && meta.types[i]
     const isStr = typeof t === 'string' && t.startsWith('str')
     return isStr ? DEFAULT_STR_COL_WIDTH : DEFAULT_COL_WIDTH
@@ -807,6 +918,7 @@
         index: i,
         header: meta.headers[i],
         width: getColumnWidth(i),
+        valueLabels: getValueLabelMap(i),
       })
     }
     return specs
@@ -883,19 +995,18 @@
    */
   function buildRow(rowData, specs) {
     const tr = document.createElement('tr')
-    for (const { index: c } of specs) {
+    for (const { index: c, valueLabels } of specs) {
       const td = document.createElement('td')
       const rawVal = rowData[c]
       if (isMissingCellValue(rawVal)) {
         td.textContent = ''
         td.classList.add('cell-missing')
       }
-      else if (isWhitespaceOnlyString(rawVal)) {
-        td.textContent = rawVal
-        td.classList.add('cell-blank')
-      }
       else {
-        td.textContent = String(rawVal)
+        const displayValue = formatCellDisplayValue(rawVal, valueLabels)
+        td.textContent = displayValue
+        if (isWhitespaceOnlyString(displayValue))
+          td.classList.add('cell-blank')
       }
       tr.appendChild(td)
     }
@@ -1192,6 +1303,16 @@
 
   // ---------- 顶部工具栏 ----------
 
+  valueLabelModeButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (button.disabled)
+        return
+      valueLabelDisplayMode = normalizeValueLabelDisplayMode(button.dataset.valueLabelMode)
+      updateValueLabelModeControl()
+      renderHeader()
+      renderBodyWindow()
+    })
+  })
   refreshData.addEventListener('click', () => {
     vscode.postMessage({ command: 'refresh' })
   })

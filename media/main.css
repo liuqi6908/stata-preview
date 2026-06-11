@@ -288,9 +288,15 @@ table {
     font-size: 12px;
     border-collapse: collapse;
 
-    & thead th {
-      cursor: default;
-      background: var(--vscode-sideBar-background);
+    & thead {
+      & tr {
+        position: static;
+
+        & th {
+          cursor: default;
+          background: var(--vscode-sideBar-background);
+        }
+      }
     }
 
     & .cell-right {
@@ -436,6 +442,36 @@ table {
     cursor: pointer;
     user-select: none;
     white-space: nowrap;
+  }
+}
+
+/* 分段控件 */
+.segmented-control {
+  height: 24px;
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  background: var(--vscode-input-background);
+
+  & .segmented-option {
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--vscode-button-secondaryForeground);
+    background: transparent;
+
+    &:not(:last-child) {
+      border-right: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    }
+
+    &.active {
+      color: var(--vscode-inputOption-activeForeground, var(--vscode-button-foreground));
+      background: var(--vscode-inputOption-activeBackground, var(--vscode-button-background));
+    }
   }
 }
 
@@ -850,8 +886,28 @@ table {
   }
 
   & #sidebar-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--vscode-panel-border);
+
+    & #value-label-mode-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      user-select: none;
+      color: var(--vscode-foreground);
+
+      & .sidebar-option-label {
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      & .segmented-option {
+        flex: 1;
+      }
+    }
 
     & #highlight-missing-wrap {
       height: 24px;

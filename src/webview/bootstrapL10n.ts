@@ -19,6 +19,8 @@ export function getWebviewBootstrapL10n() {
     applyingFilter: l10n.t('Applying filter…'),
     sorting: l10n.t('Sorting…'),
     exportingData: l10n.t('Exporting data…'),
+    ValueLabelModeTitle: l10n.t('Value label display mode'),
+    NoValueLabelsInDataset: l10n.t('No value labels in this dataset'),
     CopyVariableName: l10n.t('Copy variable name'),
     CopyVariableLabel: l10n.t('Copy variable label'),
     SortAscending: l10n.t('Sort ascending'),

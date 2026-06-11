@@ -402,6 +402,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
         headers: meta.headers,
         labels: meta.labels,
         types: meta.types,
+        valueLabels: meta.valueLabels,
         nobs: meta.nobs,
         release: meta.release,
         byteOrder: meta.byteOrder,

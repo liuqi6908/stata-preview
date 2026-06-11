@@ -57,6 +57,7 @@ export function renderUsageGuideHtml(): string {
         <li>${l10n.t('Hold Shift while clicking column headers to sort by multiple columns.')}</li>
         <li>${l10n.t('Drag the handle on the right edge of a header to resize the column.')}</li>
         <li>${l10n.t('Right-click a column header to copy names, sort, hide columns, reset width, or open variable statistics.')}</li>
+        <li>${l10n.t('Switch value label display between raw values, labels, or raw values plus labels without changing filtering, sorting, or export data.')}</li>
         <li>${l10n.t('Use the pager to move through rows and change the page size.')}</li>
       </ul>
     </section>
