@@ -39,11 +39,13 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Support single-column sorting and Shift-click multi-column sorting
 * Support resizing columns by dragging the handle on the right edge of a header
 * Support a header context menu for copying variable names/labels, sorting, hiding columns, resetting width, and opening variable statistics
-* Display variable labels and value labels
+* Display variable labels and value labels, with display modes for raw values, labels, or raw values plus labels
 * Hide/show specified columns via the sidebar, with optional missing-value highlighting
+* Built-in Variable Dictionary: review variable names, labels, storage types, statistical types, valid counts, missing rates, and unique counts
 * Built-in Variable Explorer: support for univariate frequency analysis and descriptive statistics
+* Click a table row to open row details as a transposed table of variables, labels, values, and value labels
 * Show whitespace-only strings with visible markers in variable statistics, making them distinct from missing values
-* Export the current table view as CSV or Excel
+* Export the current table view or variable dictionary as CSV or Excel
 * Built-in file information dialog for path, size, update time, Stata release, byte order, data volume, and variable count
 * Built-in usage guide dialog for filter expressions and table operations
 * Recognize some earlier Stata .dta formats and show clear unsupported-version messages
@@ -64,9 +66,12 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Click column headers to sort; hold Shift while clicking headers to sort by multiple columns
 * Drag the handle on the right edge of a header to resize the column
 * Right-click a column header to open column actions
+* Use the value-label display control to switch between raw values, labels, or raw values plus labels
+* Click a data row to open row details; click the selected row again to close them
+* Drag the row-detail panel handle to resize its height, and drag detail-table headers to resize columns
 * The sidebar supports searching for variables, hiding/showing specified columns, and toggling missing-value highlighting
-* Use the toolbar to open file information, usage guide, refresh data, or export data
-* Press Esc to close file information, usage guide, or variable statistics dialogs
+* Open the usage guide, variable dictionary, and file information, or refresh/export data
+* Press Esc to close file information, usage guide, variable dictionary, or variable statistics dialogs
 
 ### Data Filtering
 
@@ -119,6 +124,12 @@ The download button in the toolbar can export the current table view as:
 * Excel (.xlsx)
 
 Exports preserve the current filter result, sort order, and visible-column configuration. Hidden columns are not exported.
+
+The variable dictionary dialog can also be exported as CSV or Excel for documentation or codebook workflows.
+
+### Variable Dictionary
+
+The variable dictionary provides a centralized view of variable structure, labels, storage types, statistical types, valid counts, missing rates, and unique counts.
 
 ### Variable Explorer
 

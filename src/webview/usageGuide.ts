@@ -70,7 +70,6 @@ export function renderUsageGuideHtml(): string {
         <li>${l10n.t('Search variable names to quickly find columns in wide datasets.')}</li>
         <li>${l10n.t('Use Highlight missing values to mark missing cells in the table without marking blank strings.')}</li>
         <li>${l10n.t('Open variable statistics to inspect missing values, unique values, distributions, and numeric summaries.')}</li>
-        <li>${l10n.t('Open the variable dictionary to review names, labels, storage types, statistical types, valid counts, missing rates, and unique counts.')}</li>
         <li>${l10n.t('Whitespace-only strings in variable statistics are shown with visible markers such as ␠×2, so different blank-looking values remain distinguishable.')}</li>
         <li>${l10n.t('Variable statistics can inherit the table filter or use a temporary filter for that calculation.')}</li>
       </ul>
@@ -80,6 +79,7 @@ export function renderUsageGuideHtml(): string {
       <ul>
         <li>${l10n.t('Refresh data to re-read the current .dta file from disk.')}</li>
         <li>${l10n.t('Export data as CSV or Excel using the current filter, sort order, and visible columns.')}</li>
+        <li>${l10n.t('Open the variable dictionary to review names, labels, storage types, statistical types, valid counts, missing rates, and unique counts.')}</li>
         <li>${l10n.t('Export the variable dictionary as CSV or Excel for documentation or codebook workflows.')}</li>
         <li>${l10n.t('Open file information to view path, size, update time, Stata release, byte order, data volume, and variable count.')}</li>
       </ul>
