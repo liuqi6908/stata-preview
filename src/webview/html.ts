@@ -62,6 +62,7 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
         <div id="main-panel">
           ${renderToolbar()}
           ${renderGrid()}
+          ${renderRowDetailPanel()}
           ${renderPagination()}
         </div>
 
@@ -218,6 +219,39 @@ function renderGrid(): string {
 }
 
 /**
+ * 渲染行详情面板。
+ */
+function renderRowDetailPanel(): string {
+  return `
+    <section id="row-detail-panel" hidden>
+      <div id="row-detail-resize-handle"></div>
+      <div id="row-detail-header">
+        <div id="row-detail-title">
+          <h3>${l10n.t('Row details')}</h3>
+          <span id="row-detail-summary"></span>
+        </div>
+        <button id="row-detail-close" class="icon" title="${l10n.t('Close row details')}">
+          ${icon('close')}
+        </button>
+      </div>
+      <div id="row-detail-body">
+        <table id="row-detail-table">
+          <thead>
+            <tr>
+              <th>${l10n.t('Variable')}</th>
+              <th>${l10n.t('Variable label')}</th>
+              <th>${l10n.t('Value')}</th>
+              <th>${l10n.t('Value label')}</th>
+            </tr>
+          </thead>
+          <tbody id="row-detail-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+  `
+}
+
+/**
  * 渲染分页器。
  */
 function renderPagination(): string {
@@ -273,7 +307,7 @@ function renderSidebar(): string {
         </div>
         <label id="highlight-missing-wrap" title="${l10n.t('Highlight missing values')}">
           <input id="highlight-missing" type="checkbox">
-          <span>${l10n.t('Highlight missing')}</span>
+          <span>${l10n.t('Highlight missing values')}</span>
         </label>
       </div>
       <div id="variable-batch-actions">

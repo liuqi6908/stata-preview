@@ -58,6 +58,8 @@ export function renderUsageGuideHtml(): string {
         <li>${l10n.t('Drag the handle on the right edge of a header to resize the column.')}</li>
         <li>${l10n.t('Right-click a column header to copy names, sort, hide columns, reset width, or open variable statistics.')}</li>
         <li>${l10n.t('Switch value label display between raw values, labels, or raw values plus labels without changing filtering, sorting, or export data.')}</li>
+        <li>${l10n.t('Click a row to open row details as a transposed table of variables, labels, values, and value labels.')}</li>
+        <li>${l10n.t('Click the selected row again to close row details, or drag its handles to resize the detail panel and columns.')}</li>
         <li>${l10n.t('Use the pager to move through rows and change the page size.')}</li>
       </ul>
     </section>
@@ -66,7 +68,7 @@ export function renderUsageGuideHtml(): string {
       <ul>
         <li>${l10n.t('Use checkboxes to show or hide columns without changing the data file.')}</li>
         <li>${l10n.t('Search variable names to quickly find columns in wide datasets.')}</li>
-        <li>${l10n.t('Use Highlight missing to mark missing cells in the table without marking blank strings.')}</li>
+        <li>${l10n.t('Use Highlight missing values to mark missing cells in the table without marking blank strings.')}</li>
         <li>${l10n.t('Open variable statistics to inspect missing values, unique values, distributions, and numeric summaries.')}</li>
         <li>${l10n.t('Open the variable dictionary to review names, labels, storage types, statistical types, valid counts, missing rates, and unique counts.')}</li>
         <li>${l10n.t('Whitespace-only strings in variable statistics are shown with visible markers such as ␠×2, so different blank-looking values remain distinguishable.')}</li>

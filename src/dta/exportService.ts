@@ -248,7 +248,7 @@ export function formatUriForDisplay(uri: vscode.Uri): string {
 function getVariableDictionaryExportColumns(): string[] {
   return [
     l10n.t('Number'),
-    l10n.t('Variable name'),
+    l10n.t('Variable'),
     l10n.t('Variable label'),
     l10n.t('Type'),
     l10n.t('Statistical type'),

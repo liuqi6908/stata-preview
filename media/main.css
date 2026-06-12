@@ -1,6 +1,7 @@
 :root {
   --sidebar-width: 300px;
   --sidebar-height: 260px;
+  --row-detail-height: min(38vh, 320px);
 }
 
 body {
@@ -156,6 +157,7 @@ button {
 /* 表格 */
 table {
   width: 100%;
+  line-height: 1.4em;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -180,7 +182,7 @@ table {
       &::after {
         content: "";
         display: block;
-        height: 16px;
+        height: 1.4em;
       }
     }
   }
@@ -368,12 +370,22 @@ table {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 6px;
       border-bottom: 1px solid var(--vscode-panel-border);
 
       & h2 {
         margin: 0;
         font-size: 16px;
         font-weight: 600;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
+
+      & button {
+        flex-shrink: 0;
+        align-items: start;
       }
     }
 
@@ -677,6 +689,15 @@ table {
   position: relative;
   min-width: 200px;
   min-height: 200px;
+
+  &.row-detail-resizing {
+    cursor: ns-resize;
+    user-select: none;
+
+    & * {
+      pointer-events: none;
+    }
+  }
 }
 
 /* 工具栏 */
@@ -780,6 +801,126 @@ table {
       border-radius: 4px;
       border: 1px solid var(--vscode-panel-border);
       background: var(--vscode-editor-background);
+    }
+  }
+}
+
+/* 数据表格 */
+#data-table {
+  & tbody tr {
+    cursor: default;
+
+    &.row-selected,
+    &.row-selected:hover {
+      color: var(--vscode-list-activeSelectionForeground, var(--vscode-list-inactiveSelectionForeground));
+      background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
+    }
+  }
+}
+
+/* 行详情面板 */
+#row-detail-panel {
+  flex: 0 0 var(--row-detail-height);
+  min-height: 140px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--vscode-panel-border);
+
+  &[hidden] {
+    display: none;
+  }
+
+  & #row-detail-resize-handle {
+    height: 4px;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    background: var(--vscode-panel-border);
+
+    &:hover {
+      background: var(--vscode-sash-hoverBorder);
+    }
+  }
+
+  & #row-detail-header {
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+    background: var(--vscode-sideBar-background);
+
+    & #row-detail-title {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      & h3 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      & #row-detail-summary {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+      }
+    }
+
+    & #row-detail-close {
+      flex-shrink: 0;
+    }
+
+    &::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -1px;
+      width: 100%;
+      height: 1px;
+      z-index: 1;
+      background: var(--vscode-panel-border);
+    }
+  }
+
+  & #row-detail-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+
+    & #row-detail-table {
+      & th {
+        cursor: default;
+      }
+
+      & th:nth-child(1) {
+        width: 180px;
+      }
+
+      & th:nth-child(2) {
+        width: 220px;
+      }
+
+      & th:nth-child(3) {
+        width: 220px;
+      }
+
+      & th:nth-child(4) {
+        width: 220px;
+      }
+
+      & td {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        vertical-align: top;
+      }
     }
   }
 }

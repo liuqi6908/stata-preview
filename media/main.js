@@ -20,6 +20,14 @@
   const VALUE_LABEL_DISPLAY_MODES = new Set(['raw', 'label', 'both'])
   /** 当前页行数据 */
   let currentPageRows = []
+  /** 当前页每行对应的原始文件行号（0 基） */
+  let currentPageRowIndices = []
+  /** 当前页中被选中的行下标 */
+  let selectedPageRow = null
+  /** 行详情表默认列宽 */
+  const ROW_DETAIL_DEFAULT_COLUMN_WIDTHS = [180, 220, 220, 220]
+  /** 行详情表列宽缓存 */
+  let rowDetailColumnWidths = ROW_DETAIL_DEFAULT_COLUMN_WIDTHS.slice()
   /** 当前过滤后的总行数 */
   let totalFiltered = 0
   /** 原始总行数 */
@@ -142,6 +150,7 @@
   // ---------- DOM 元素 ----------
 
   const layoutContainer = document.getElementById('layout-container')
+  const mainPanel = document.getElementById('main-panel')
   const resizeHandle = document.getElementById('resize-handle')
 
   // 工具栏
@@ -164,6 +173,13 @@
   const dataTable = document.getElementById('data-table')
   const tableHead = document.getElementById('table-head')
   const tableBody = document.getElementById('table-body')
+  const rowDetailPanel = document.getElementById('row-detail-panel')
+  const rowDetailResizeHandle = document.getElementById('row-detail-resize-handle')
+  const rowDetailSummary = document.getElementById('row-detail-summary')
+  const rowDetailClose = document.getElementById('row-detail-close')
+  const rowDetailBody = document.getElementById('row-detail-body')
+  const rowDetailTable = document.getElementById('row-detail-table')
+  const rowDetailTableBody = document.getElementById('row-detail-table-body')
 
   // 分页控件
   const pageFirst = document.getElementById('page-first')
@@ -208,6 +224,9 @@
 
   pageSizeSelect.value = String(pageSize)
   initResizeHandle()
+  initRowDetailResizeHandle()
+  initRowDetailColumnResize()
+  syncRowDetailColumnLayout()
   updateValueLabelModeControl()
   updateSidebarToggle()
   updateSidebarPositionButton()
@@ -259,9 +278,11 @@
     if (!hasAnyValueLabels())
       valueLabelDisplayMode = 'raw'
     currentPageRows = payload.page.rows
+    currentPageRowIndices = normalizePageRowIndices(payload.page.rowIndices, currentPageRows.length, payload.page.offset)
     pageOffset = payload.page.offset
     totalFiltered = payload.page.totalFiltered
     totalAll = payload.page.totalAll
+    clearSelectedRow()
     visibleColumns = createAllColumnSet()
     variableSearchText = meta.headers.map((header, i) => `${header} ${meta.labels[i] || ''}`.toLowerCase())
     variableSearchQuery = ''
@@ -330,9 +351,11 @@
     try {
       const res = await postLatest('page', 'getPage', { offset, limit: pageSize })
       currentPageRows = res.page.rows
+      currentPageRowIndices = normalizePageRowIndices(res.page.rowIndices, currentPageRows.length, res.page.offset)
       pageOffset = res.page.offset
       totalFiltered = res.page.totalFiltered
       totalAll = res.page.totalAll
+      clearSelectedRow()
       gridContainer.scrollTop = 0
       renderBody()
       renderPaginationBar()
@@ -402,6 +425,15 @@
   }
 
   /**
+   * 规范化当前页原始行索引。
+   */
+  function normalizePageRowIndices(rowIndices, rowCount, offset = pageOffset) {
+    if (!Array.isArray(rowIndices))
+      return Array.from({ length: rowCount }, (_, i) => offset + i)
+    return rowIndices
+  }
+
+  /**
    * 规范化值标签显示模式。
    */
   function normalizeValueLabelDisplayMode(mode) {
@@ -465,6 +497,159 @@
     if (valueLabelDisplayMode === 'label')
       return label
     return `${rawText} (${label})`
+  }
+
+  /**
+   * 清除当前行选择并关闭详情面板。
+   */
+  function clearSelectedRow() {
+    selectedPageRow = null
+    hideRowDetailPanel()
+    updateSelectedRowMarkers()
+  }
+
+  /**
+   * 选中当前页中的一行。
+   */
+  function selectRow(pageRow) {
+    if (!Number.isInteger(pageRow) || pageRow < 0 || pageRow >= currentPageRows.length)
+      return
+    if (selectedPageRow === pageRow && !rowDetailPanel.hidden) {
+      clearSelectedRow()
+      return
+    }
+    selectedPageRow = pageRow
+    updateSelectedRowMarkers()
+    renderSelectedRowDetails()
+  }
+
+  /**
+   * 同步当前虚拟窗口里的行选中样式。
+   */
+  function updateSelectedRowMarkers() {
+    tableBody.querySelectorAll('tr[data-page-row]').forEach((tr) => {
+      const pageRow = Number.parseInt(tr.dataset.pageRow || '-1', 10)
+      tr.classList.toggle('row-selected', pageRow === selectedPageRow)
+    })
+  }
+
+  /**
+   * 同步所有数据表的缺失值高亮状态。
+   */
+  function updateHighlightMissingState(enabled) {
+    dataTable.classList.toggle('highlight-missing', enabled)
+    rowDetailTable.classList.toggle('highlight-missing', enabled)
+  }
+
+  /**
+   * 隐藏行详情面板。
+   */
+  function hideRowDetailPanel() {
+    rowDetailPanel.hidden = true
+    rowDetailTableBody.innerHTML = ''
+    rowDetailSummary.textContent = ''
+    requestAnimationFrame(renderBodyWindow)
+  }
+
+  /**
+   * 渲染当前选中行的转置详情表。
+   */
+  function renderSelectedRowDetails() {
+    if (selectedPageRow === null || !meta || !currentPageRows[selectedPageRow]) {
+      hideRowDetailPanel()
+      return
+    }
+
+    const rowData = currentPageRows[selectedPageRow]
+    const viewRow = pageOffset + selectedPageRow + 1
+    const sourceRowIndex = currentPageRowIndices[selectedPageRow]
+    rowDetailSummary.textContent = Number.isFinite(sourceRowIndex)
+      ? formatL10n(bootstrap.l10n.RowDetailSummary, fmtInt(viewRow), fmtInt(sourceRowIndex + 1))
+      : formatL10n(bootstrap.l10n.RowDetailViewSummary, fmtInt(viewRow))
+
+    const fragment = document.createDocumentFragment()
+    for (let i = 0; i < meta.headers.length; i++) {
+      const tr = document.createElement('tr')
+      appendDetailTextCell(tr, meta.headers[i])
+      appendDetailTextCell(tr, meta.labels[i] || '')
+      appendDetailValueCell(tr, rowData[i])
+      appendDetailValueLabelCell(tr, getValueLabelMap(i), rowData[i])
+      fragment.appendChild(tr)
+    }
+
+    rowDetailTableBody.innerHTML = ''
+    rowDetailTableBody.appendChild(fragment)
+    syncRowDetailColumnLayout()
+    rowDetailBody.scrollTop = 0
+    rowDetailPanel.hidden = false
+    requestAnimationFrame(renderBodyWindow)
+  }
+
+  /**
+   * 追加行详情普通文本单元格。
+   */
+  function appendDetailTextCell(tr, value) {
+    const td = document.createElement('td')
+    td.textContent = value === null || value === undefined ? '' : String(value)
+    tr.appendChild(td)
+  }
+
+  /**
+   * 追加行详情值单元格。
+   */
+  function appendDetailValueCell(tr, value) {
+    const td = document.createElement('td')
+    if (isMissingCellValue(value)) {
+      td.classList.add('cell-missing')
+    }
+    else if (value === '') {
+      const span = document.createElement('span')
+      span.className = 'whitespace-value'
+      span.textContent = '""'
+      td.appendChild(span)
+    }
+    else if (isWhitespaceOnlyString(value)) {
+      const span = document.createElement('span')
+      span.className = 'whitespace-value'
+      span.textContent = formatWhitespacePreview(value)
+      td.appendChild(span)
+    }
+    else {
+      td.textContent = String(value)
+    }
+    tr.appendChild(td)
+  }
+
+  /**
+   * 追加行详情值标签单元格。
+   */
+  function appendDetailValueLabelCell(tr, labelMap, rawValue) {
+    const label = getValueLabelForCell(labelMap, rawValue)
+    appendDetailTextCell(tr, label || '')
+  }
+
+  /**
+   * 同步行详情表列宽。
+   */
+  function syncRowDetailColumnLayout() {
+    let colgroup = rowDetailTable.querySelector('colgroup')
+    if (!colgroup) {
+      colgroup = document.createElement('colgroup')
+      rowDetailTable.insertBefore(colgroup, rowDetailTable.firstChild)
+    }
+
+    colgroup.innerHTML = ''
+    const headers = rowDetailTable.querySelectorAll('thead th')
+    rowDetailColumnWidths = rowDetailColumnWidths.map(width => Math.max(60, width))
+    rowDetailColumnWidths.forEach((width, index) => {
+      const col = document.createElement('col')
+      col.style.width = `${width}px`
+      colgroup.appendChild(col)
+      if (headers[index])
+        headers[index].style.width = `${width}px`
+    })
+    const totalWidth = rowDetailColumnWidths.reduce((sum, width) => sum + width, 0)
+    rowDetailTable.style.width = `${totalWidth}px`
   }
 
   /**
@@ -868,6 +1053,12 @@
     if (headerContextMenu) {
       hideHeaderContextMenu()
       e.preventDefault()
+      return
+    }
+
+    if (!rowDetailPanel.hidden) {
+      clearSelectedRow()
+      e.preventDefault()
     }
   })
 
@@ -1003,8 +1194,11 @@
   /**
    * 构建单行 DOM
    */
-  function buildRow(rowData, specs) {
+  function buildRow(rowData, specs, pageRow) {
     const tr = document.createElement('tr')
+    tr.dataset.pageRow = String(pageRow)
+    tr.classList.toggle('row-selected', pageRow === selectedPageRow)
+    tr.addEventListener('click', () => selectRow(pageRow))
     for (const { index: c, valueLabels } of specs) {
       const td = document.createElement('td')
       const rawVal = rowData[c]
@@ -1083,7 +1277,7 @@
     if (topH > 0)
       fragment.appendChild(spacerRow(topH, colspan))
     for (let r = start; r < end; r++) {
-      fragment.appendChild(buildRow(currentPageRows[r], specs))
+      fragment.appendChild(buildRow(currentPageRows[r], specs, r))
     }
     if (bottomH > 0)
       fragment.appendChild(spacerRow(bottomH, colspan))
@@ -1340,8 +1534,9 @@
     updateSidebarToggle()
   })
   highlightMissing.addEventListener('change', (e) => {
-    dataTable.classList.toggle('highlight-missing', e.target.checked)
+    updateHighlightMissingState(e.target.checked)
   })
+  rowDetailClose.addEventListener('click', clearSelectedRow)
   sidebarPositionBtn.addEventListener('click', () => {
     sidebarPosition = sidebarPosition === 'right' ? 'bottom' : 'right'
     layoutContainer.classList.toggle('sidebar-bottom', sidebarPosition === 'bottom')
@@ -1486,7 +1681,7 @@
           <thead>
             <tr>
               <th>${bootstrap.l10n.Number}</th>
-              <th>${bootstrap.l10n.VariableName}</th>
+              <th>${bootstrap.l10n.Variable}</th>
               <th>${bootstrap.l10n.VariableLabel}</th>
               <th>${bootstrap.l10n.Type}</th>
               <th>${bootstrap.l10n.StatisticalType}</th>
@@ -1530,7 +1725,7 @@
     return `<tr>
       <td>${fmtNum(entry.index)}</td>
       <td>${renderDictionaryText(entry.name)}</td>
-      <td>${renderDictionaryText(entry.label)}</td>
+      <td>${renderDictionaryText(entry.label, '')}</td>
       <td>${renderDictionaryText(entry.type)}</td>
       <td>${escapeHtml(getDictionaryStatTypeLabel(entry.statType))}</td>
       <td class="cell-right">${fmtNum(entry.nValid)}</td>
@@ -1564,9 +1759,9 @@
   /**
    * 渲染字典普通文本单元格。
    */
-  function renderDictionaryText(value) {
+  function renderDictionaryText(value, emptyText = '—') {
     if (value === null || value === undefined || String(value).length === 0)
-      return '—'
+      return emptyText
     return escapeHtml(value)
   }
 
@@ -1796,7 +1991,7 @@
     const maxFreq = r.entries.reduce((m, e) => Math.max(m, e.freq), 0)
     let html = `<div class="explorer-section"><h3>${bootstrap.l10n.FrequencyDistribution}</h3>`
     html += '<table class="flat">'
-    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.Label}</th><th class="cell-right">${bootstrap.l10n.Freq}</th><th class="cell-right">${bootstrap.l10n.Percent}</th><th class="cell-right">${bootstrap.l10n.CumPercent}</th><th class="bar-cell">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
+    html += `<thead><tr><th>${bootstrap.l10n.Value}</th><th>${bootstrap.l10n.ValueLabel}</th><th class="cell-right">${bootstrap.l10n.Freq}</th><th class="cell-right">${bootstrap.l10n.Percent}</th><th class="cell-right">${bootstrap.l10n.CumPercent}</th><th class="bar-cell">${bootstrap.l10n.Bar}</th></tr></thead><tbody>`
     for (const e of r.entries) {
       const pctOfMax = maxFreq > 0 ? (e.freq / maxFreq * 100) : 0
       const lbl = e.label !== undefined && e.label !== null ? escapeHtml(e.label) : ''
@@ -2068,6 +2263,114 @@
         const delta = startY - e.clientY
         queuePanelSize(Math.max(100, Math.min(500, startH + delta)))
       }
+    })
+    document.addEventListener('mouseup', finishResize)
+    window.addEventListener('blur', finishResize)
+  }
+
+  /**
+   * 初始化行详情面板高度拖拽手柄。
+   */
+  function initRowDetailResizeHandle() {
+    let isResizing = false
+    let startY = 0
+    let startH = 0
+    let pendingHeight = 0
+    let resizeRaf = 0
+
+    const normalizeHeight = (height) => {
+      const minHeight = 120
+      const panelHeight = mainPanel.clientHeight || window.innerHeight || 600
+      const maxHeight = Math.max(minHeight, Math.min(panelHeight - 160, panelHeight * 0.75))
+      return Math.max(minHeight, Math.min(maxHeight, height))
+    }
+
+    const applyHeight = (height) => {
+      rowDetailPanel.style.setProperty('--row-detail-height', `${normalizeHeight(height)}px`)
+    }
+
+    const queueHeight = (height) => {
+      pendingHeight = height
+      if (resizeRaf)
+        return
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0
+        applyHeight(pendingHeight)
+      })
+    }
+
+    const finishResize = () => {
+      if (!isResizing)
+        return
+      if (resizeRaf) {
+        cancelAnimationFrame(resizeRaf)
+        resizeRaf = 0
+        applyHeight(pendingHeight)
+      }
+      isResizing = false
+      mainPanel.classList.remove('row-detail-resizing')
+      requestAnimationFrame(renderBodyWindow)
+    }
+
+    rowDetailResizeHandle.addEventListener('mousedown', (e) => {
+      if (rowDetailPanel.hidden)
+        return
+      isResizing = true
+      startY = e.clientY
+      startH = rowDetailPanel.getBoundingClientRect().height
+      pendingHeight = startH
+      mainPanel.classList.add('row-detail-resizing')
+      e.preventDefault()
+    })
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing)
+        return
+      queueHeight(startH - (e.clientY - startY))
+    })
+    document.addEventListener('mouseup', finishResize)
+    window.addEventListener('blur', finishResize)
+  }
+
+  /**
+   * 初始化行详情表列宽拖拽手柄。
+   */
+  function initRowDetailColumnResize() {
+    let resizingTh = null
+    let resizingIndex = -1
+    let startX = 0
+    let startWidth = 0
+
+    const finishResize = () => {
+      if (!resizingTh)
+        return
+      resizingTh.classList.remove('is-resizing')
+      resizingTh = null
+      resizingIndex = -1
+    }
+
+    rowDetailTable.querySelectorAll('thead th').forEach((th, index) => {
+      if (th.querySelector('.row-detail-column-resize-handle'))
+        return
+      const handle = document.createElement('div')
+      handle.className = 'resize-handle row-detail-column-resize-handle'
+      th.appendChild(handle)
+      handle.addEventListener('mousedown', (e) => {
+        resizingTh = th
+        resizingIndex = index
+        startX = e.clientX
+        startWidth = rowDetailColumnWidths[index] || th.offsetWidth
+        th.classList.add('is-resizing')
+        e.stopPropagation()
+        e.preventDefault()
+      })
+    })
+
+    document.addEventListener('mousemove', (e) => {
+      if (!resizingTh || resizingIndex < 0)
+        return
+      const width = Math.max(60, startWidth + e.clientX - startX)
+      rowDetailColumnWidths[resizingIndex] = width
+      syncRowDetailColumnLayout()
     })
     document.addEventListener('mouseup', finishResize)
     window.addEventListener('blur', finishResize)
