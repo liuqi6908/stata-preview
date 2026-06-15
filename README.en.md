@@ -36,6 +36,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Support paginated loading to adapt to large-capacity datasets
 * Support Stata-like filter expressions, including Unicode variable names such as Chinese column names
 * Support parentheses, arithmetic operators, missing-value checks, set/range checks, string functions, regular expressions, and date functions
+* Support filter input autocomplete, expression history, and saved favorite filters
 * Support single-column sorting and Shift-click multi-column sorting
 * Support resizing columns by dragging the handle on the right edge of a header
 * Support a header context menu for copying variable names/labels, sorting, hiding columns, resetting width, and opening variable statistics
@@ -63,6 +64,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 
 * Click on a .dta file to open it directly
 * Enter conditions in the top toolbar to filter row data
+* Use autocomplete in the filter box, and reuse expressions from history or saved filters
 * Click column headers to sort; hold Shift while clicking headers to sort by multiple columns
 * Drag the handle on the right edge of a header to resize the column
 * Right-click a column header to open column actions
@@ -70,6 +72,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Click a data row to open row details; click the selected row again to close them
 * Drag the row-detail panel handle to resize its height, and drag detail-table headers to resize columns
 * The sidebar supports searching for variables, hiding/showing specified columns, and toggling missing-value highlighting
+* Click variable names to insert variable names or function templates into the filter box
 * Open the usage guide, variable dictionary, and file information, or refresh/export data
 * Press Esc to close file information, usage guide, variable dictionary, or variable statistics dialogs
 

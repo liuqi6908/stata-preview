@@ -8,6 +8,7 @@
 /** Webview 图标名称。 */
 export type WebviewIcon
   = | 'help'
+    | 'filter'
     | 'refresh'
     | 'download'
     | 'firstPage'
@@ -40,6 +41,8 @@ function iconPath(name: WebviewIcon): string {
   switch (name) {
     case 'help':
       return '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9 4v.01"/><path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/>'
+    case 'filter':
+      return 'M4 5h16M7 12h10m-7 7h4'
     case 'refresh':
       return 'M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4m-4 4a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4'
     case 'download':

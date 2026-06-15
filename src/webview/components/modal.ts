@@ -35,9 +35,7 @@ export function renderModal(options: ModalTemplateOptions): string {
       <div class="modal-content">
         <div class="modal-header">
           <h2${titleAttrs}>${options.title}</h2>
-          <button id="${options.closeButtonId}" class="icon" data-modal-close="${options.id}" title="${options.closeTitle}">
-            ${icon('close')}
-          </button>
+          <button id="${options.closeButtonId}" class="icon" data-modal-close="${options.id}" title="${options.closeTitle}">${icon('close')}</button>
         </div>
         <div id="${options.bodyId}" class="modal-body">${options.bodyHtml ?? ''}</div>
       </div>

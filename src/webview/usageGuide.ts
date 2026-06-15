@@ -27,6 +27,7 @@ export function renderUsageGuideHtml(): string {
         <h4>${l10n.t('Basic syntax')}</h4>
         <ul>
           <li>${l10n.t('Enter an expression in the filter box, then apply it to show matching rows.')}</li>
+          <li>${l10n.t('Use filter suggestions to complete variable names and helper functions, and reuse history or saved filters from the toolbar.')}</li>
           <li>${l10n.t('Use variable names directly, including Unicode names such as Chinese column names.')}</li>
           <li>${l10n.t('Wrap string values in single or double quotes.')}</li>
           <li>${l10n.t('Use parentheses to group conditions and control evaluation order.')}</li>
@@ -68,6 +69,7 @@ export function renderUsageGuideHtml(): string {
       <ul>
         <li>${l10n.t('Use checkboxes to show or hide columns without changing the data file.')}</li>
         <li>${l10n.t('Search variable names to quickly find columns in wide datasets.')}</li>
+        <li>${l10n.t('Click a variable name to insert the variable name or function templates into the filter box.')}</li>
         <li>${l10n.t('Use Highlight missing values to mark missing cells in the table without marking blank strings.')}</li>
         <li>${l10n.t('Open variable statistics to inspect missing values, unique values, distributions, and numeric summaries.')}</li>
         <li>${l10n.t('Whitespace-only strings in variable statistics are shown with visible markers such as ␠×2, so different blank-looking values remain distinguishable.')}</li>

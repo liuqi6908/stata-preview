@@ -176,6 +176,8 @@ function renderToolbar(): string {
       <div id="toolbar-left">
         <div id="search-field">
           <input id="search-input" type="text" placeholder="${l10n.t('Filter: e.g., edad > 30 & treatment == 1')}">
+          <button id="filter-tools" class="icon" title="${l10n.t('Filter tools')}">${icon('filter', 16)}</button>
+          <div id="filter-assist" class="filter-assist" hidden></div>
           <span id="filter-error"></span>
         </div>
         <button id="search-apply" title="${l10n.t('Apply filter (or press Enter)')}">${l10n.t('Apply')}</button>
@@ -230,9 +232,7 @@ function renderRowDetailPanel(): string {
           <h3>${l10n.t('Row details')}</h3>
           <span id="row-detail-summary"></span>
         </div>
-        <button id="row-detail-close" class="icon" title="${l10n.t('Close row details')}">
-          ${icon('close')}
-        </button>
+        <button id="row-detail-close" class="icon" title="${l10n.t('Close row details')}">${icon('close')}</button>
       </div>
       <div id="row-detail-body">
         <table id="row-detail-table">
@@ -300,9 +300,9 @@ function renderSidebar(): string {
         <div id="value-label-mode-wrap" title="${l10n.t('Value label display mode')}">
           <span class="sidebar-option-label">${l10n.t('Value label display mode')}</span>
           <div id="value-label-mode" class="segmented-control">
-            <button type="button" class="segmented-option active" data-value-label-mode="raw">${l10n.t('Raw')}</button>
-            <button type="button" class="segmented-option" data-value-label-mode="label">${l10n.t('Label')}</button>
-            <button type="button" class="segmented-option" data-value-label-mode="both">${l10n.t('Raw + label')}</button>
+            <button class="segmented-option active" data-value-label-mode="raw">${l10n.t('Raw')}</button>
+            <button class="segmented-option" data-value-label-mode="label">${l10n.t('Label')}</button>
+            <button class="segmented-option" data-value-label-mode="both">${l10n.t('Raw + label')}</button>
           </div>
         </div>
         <label id="highlight-missing-wrap" title="${l10n.t('Highlight missing values')}">
