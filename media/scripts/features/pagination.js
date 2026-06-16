@@ -193,9 +193,10 @@ function updateHighlightMissingState(enabled) {
  * 隐藏行详情面板
  */
 function hideRowDetailPanel() {
-  rowDetailPanel.hidden = true
   rowDetailTableBody.innerHTML = ''
   rowDetailSummary.textContent = ''
+  resetRowDetailScrollTop()
+  rowDetailPanel.hidden = true
   requestAnimationFrame(renderBodyWindow)
 }
 
@@ -228,9 +229,16 @@ function renderSelectedRowDetails() {
   rowDetailTableBody.innerHTML = ''
   rowDetailTableBody.appendChild(fragment)
   syncRowDetailColumnLayout()
-  rowDetailBody.scrollTop = 0
   rowDetailPanel.hidden = false
+  resetRowDetailScrollTop()
   requestAnimationFrame(renderBodyWindow)
+}
+
+/**
+ * 重置行详情表格的纵向滚动位置
+ */
+function resetRowDetailScrollTop() {
+  rowDetailBody.scrollTop = 0
 }
 
 /**
