@@ -40,6 +40,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Support single-column sorting and Shift-click multi-column sorting
 * Support resizing columns by dragging the handle on the right edge of a header
 * Support a header context menu for copying variable names/labels, sorting, hiding columns, resetting width, and opening variable statistics
+* Support a data-cell context menu for copying the current cell or the current row as variable=value text
 * Display variable labels and value labels, with display modes for raw values, labels, or raw values plus labels
 * Hide/show specified columns via the sidebar, with optional missing-value highlighting
 * Built-in Variable Dictionary: review variable names, labels, storage types, statistical types, valid counts, missing rates, and unique counts
@@ -68,6 +69,7 @@ The plugin is not intended to replace Stata, but to enable quick viewing, lightw
 * Click column headers to sort; hold Shift while clicking headers to sort by multiple columns
 * Drag the handle on the right edge of a header to resize the column
 * Right-click a column header to open column actions
+* Right-click a data cell to copy the current cell, or copy the current row as variable=value lines
 * Use the value-label display control to switch between raw values, labels, or raw values plus labels
 * Click a data row to open row details; click the selected row again to close them
 * Drag the row-detail panel handle to resize its height, and drag detail-table headers to resize columns
