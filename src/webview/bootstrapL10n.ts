@@ -73,6 +73,8 @@ export function getWebviewBootstrapL10n() {
     InsertFunctionTemplate: l10n.t('Insert function template'),
     CopyVariableName: l10n.t('Copy variable name'),
     CopyVariableLabel: l10n.t('Copy variable label'),
+    CopyCell: l10n.t('Copy cell'),
+    CopyCurrentRow: l10n.t('Copy current row'),
     SortAscending: l10n.t('Sort ascending'),
     SortDescending: l10n.t('Sort descending'),
     ClearColumnSort: l10n.t('Clear column sort'),

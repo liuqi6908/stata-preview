@@ -88,6 +88,27 @@ async function copyText(text) {
 }
 
 /**
+ * 按表格当前显示模式生成单元格复制文本
+ */
+function formatDataCellCopyValue(rowData, colIndex) {
+  if (!rowData || colIndex < 0 || colIndex >= rowData.length)
+    return ''
+  const value = rowData[colIndex]
+  if (isMissingCellValue(value))
+    return ''
+  return formatCellDisplayValue(value, getValueLabelMap(colIndex))
+}
+
+/**
+ * 按当前可见列生成一行的键值文本快照
+ */
+function buildDataRowCopyText(rowData) {
+  return getVisibleColumnSpecs()
+    .map(({ header, index }) => `${header}=${formatDataCellCopyValue(rowData, index)}`)
+    .join('\n')
+}
+
+/**
  * 重新渲染列显隐相关界面
  */
 function renderColumnVisibility() {
@@ -142,7 +163,7 @@ function resetColumnWidth(colIndex) {
 // ---------- 菜单基础能力 ----------
 
 /**
- * 隐藏表头右键菜单
+ * 隐藏当前右键菜单
  */
 function hideHeaderContextMenu() {
   if (headerContextMenu)
@@ -302,6 +323,34 @@ function showHeaderContextMenu(colIndex, clientX, clientY) {
     createHeaderMenuItem(bootstrap.l10n.ResetColumnWidth, () => resetColumnWidth(colIndex), !hasCustomWidth),
     createHeaderMenuSeparator(),
     createHeaderMenuItem(bootstrap.l10n.ExploreVariableStatistics, () => openExplorer(colIndex)),
+  )
+
+  document.body.appendChild(menu)
+  placeContextMenuAtPoint(menu, clientX, clientY)
+  headerContextMenu = menu
+}
+
+// ---------- 表体菜单 ----------
+
+/**
+ * 显示数据单元格右键菜单
+ */
+function showDataCellContextMenu(pageRow, colIndex, clientX, clientY) {
+  hideHeaderContextMenu()
+
+  const rowData = currentPageRows[pageRow]
+  if (!rowData)
+    return
+
+  const cellText = formatDataCellCopyValue(rowData, colIndex)
+  const rowText = buildDataRowCopyText(rowData)
+
+  const menu = document.createElement('div')
+  menu.className = 'context-menu'
+  menu.id = 'data-cell-context-menu'
+  menu.append(
+    createHeaderMenuItem(bootstrap.l10n.CopyCell, () => void copyText(cellText)),
+    createHeaderMenuItem(bootstrap.l10n.CopyCurrentRow, () => void copyText(rowText)),
   )
 
   document.body.appendChild(menu)

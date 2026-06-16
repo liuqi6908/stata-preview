@@ -163,6 +163,7 @@ function buildRow(rowData, specs, pageRow) {
   tr.addEventListener('click', () => selectRow(pageRow))
   for (const { index: c, valueLabels } of specs) {
     const td = document.createElement('td')
+    td.dataset.colIndex = String(c)
     const rawVal = rowData[c]
     if (isMissingCellValue(rawVal)) {
       td.textContent = ''
@@ -268,4 +269,25 @@ function handleGridScroll() {
   })
 }
 
+/**
+ * 处理表体右键复制菜单
+ */
+function handleTableBodyContextMenu(e) {
+  const target = e.target instanceof Element ? e.target : null
+  const cell = target ? target.closest('td[data-col-index]') : null
+  if (!cell || !tableBody.contains(cell))
+    return
+
+  const row = cell.closest('tr[data-page-row]')
+  const pageRow = row ? Number.parseInt(row.dataset.pageRow || '-1', 10) : -1
+  const colIndex = Number.parseInt(cell.dataset.colIndex || '-1', 10)
+  if (!Number.isInteger(pageRow) || pageRow < 0 || !Number.isInteger(colIndex) || colIndex < 0)
+    return
+
+  e.preventDefault()
+  e.stopPropagation()
+  showDataCellContextMenu(pageRow, colIndex, e.clientX, e.clientY)
+}
+
 gridContainer.addEventListener('scroll', handleGridScroll)
+tableBody.addEventListener('contextmenu', handleTableBodyContextMenu)
