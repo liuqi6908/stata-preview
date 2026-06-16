@@ -28,7 +28,6 @@
     align-items: center;
     gap: 6px;
     position: relative;
-    background: var(--vscode-sideBar-background);
 
     & #row-detail-title {
       flex: 1;

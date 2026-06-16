@@ -57,6 +57,7 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
       <meta charset="UTF-8">
       <meta http-equiv="Content-Security-Policy" content="${csp}">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      ${renderInitialVisibilityStyle(nonce)}
       <link href="${styleUri}" rel="stylesheet">
       <title>${l10n.t('Stata Preview')}</title>
     </head>
@@ -114,6 +115,13 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
     </html>`
 }
 
+/**
+ * 样式入口生效前先隐藏页面，避免 Webview 初始阶段出现无样式布局
+ */
+function renderInitialVisibilityStyle(nonce: string): string {
+  return `<style nonce="${nonce}">body { visibility: hidden; }</style>`
+}
+
 // ---------- CSP 与脚本数据 ----------
 
 /**
@@ -131,7 +139,7 @@ function renderContentSecurityPolicy(webview: vscode.Webview, nonce: string): st
     `connect-src 'none'`,
     `img-src ${webview.cspSource} data:`,
     `font-src ${webview.cspSource}`,
-    `style-src ${webview.cspSource}`,
+    `style-src ${webview.cspSource} 'nonce-${nonce}'`,
     `script-src 'nonce-${nonce}'`,
   ].join('; ')
 }
