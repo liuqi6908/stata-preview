@@ -10,11 +10,13 @@ import {
 } from '../src/dta/tableExporter'
 import { createColumnarFixture } from './helpers/dtaFixture'
 
+// ---------- CSV ----------
+
 test('CSV 导出会写入 BOM、表头和缺失单元格', async () => {
   const view = new DtaView(createColumnarFixture())
   await view.setFilterAsync({ query: 'id <= 3' }, { yieldEvery: 1 })
 
-  const csv = Buffer.from(await exportViewToCsvAsync(view, ['id', 'city', 'score'])).toString('utf8')
+  const csv = toUtf8(await exportViewToCsvAsync(view, ['id', 'city', 'score']))
 
   assert.ok(csv.startsWith('\uFEFFid,city,score'))
   assert.match(csv, /1,Kunming,88\.123457/)
@@ -26,10 +28,10 @@ test('CSV 异步导出会按分页报告进度', async () => {
   const view = new DtaView(createColumnarFixture())
   const rows: number[] = []
 
-  const csv = Buffer.from(await exportViewToCsvAsync(view, ['id'], {
+  const csv = toUtf8(await exportViewToCsvAsync(view, ['id'], {
     pageSize: 2,
     onProgress: state => rows.push(state.processedRows),
-  })).toString('utf8')
+  }))
 
   assert.ok(csv.startsWith('\uFEFFid'))
   assert.deepEqual(rows, [0, 2, 4, 5])
@@ -37,7 +39,7 @@ test('CSV 异步导出会按分页报告进度', async () => {
 
 test('CSV 通用行源导出会按分页读取行', async () => {
   const offsets: number[] = []
-  const csv = Buffer.from(await exportRowsToCsvAsync({
+  const csv = toUtf8(await exportRowsToCsvAsync({
     columns: ['name', 'unique'],
     totalRows: 3,
     getRows(offset, limit) {
@@ -48,12 +50,14 @@ test('CSV 通用行源导出会按分页读取行', async () => {
         ['city', 4],
       ].slice(offset, offset + limit)
     },
-  }, { pageSize: 2 })).toString('utf8')
+  }, { pageSize: 2 }))
 
   assert.ok(csv.startsWith('\uFEFFname,unique'))
   assert.match(csv, /group,2/)
   assert.deepEqual(offsets, [0, 2])
 })
+
+// ---------- 取消 ----------
 
 test('导出取消时会抛出取消错误', async () => {
   const view = new DtaView(createColumnarFixture())
@@ -65,6 +69,8 @@ test('导出取消时会抛出取消错误', async () => {
     DtaExportCancelledError,
   )
 })
+
+// ---------- XLSX ----------
 
 test('XLSX 导出会生成基于 ZIP 的工作簿包', async () => {
   const view = new DtaView(createColumnarFixture())
@@ -78,3 +84,9 @@ test('XLSX 导出会生成基于 ZIP 的工作簿包', async () => {
   assert.ok(text.includes('xl/worksheets/sheet1.xml'))
   assert.ok(text.includes('Kunming'))
 })
+
+// ---------- 辅助函数 ----------
+
+function toUtf8(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('utf8')
+}

@@ -14,38 +14,44 @@ import type { CompiledFilter } from './filterCompiler'
 import type { ColumnArray, DtaColumnar, DtaMeta, FilterSpec, PageRequest, PageResult, SortSpec } from './types'
 import { compileFilter } from './filterCompiler'
 
-/** 异步重建视图时默认每处理多少行让出一次事件循环。 */
+// ---------- 配置 ----------
+
+/** 异步重建视图时默认每处理多少行让出一次事件循环 */
 const DEFAULT_REBUILD_YIELD_EVERY = 50000
 
-/** 分块排序时每个小块的默认行数。 */
+/** 分块排序时每个小块的默认行数 */
 const DEFAULT_SORT_CHUNK_SIZE = 50000
 
-/** 分页时读取单列所需的缓存信息。 */
+// ---------- 类型 ----------
+
+/** 分页时读取单列所需的缓存信息 */
 interface PageColumn {
-  /** 列数据。 */
+  /** 列数据 */
   col: ColumnArray
-  /** 缺失值掩码。 */
+  /** 缺失值掩码 */
   miss: Uint8Array
-  /** DTA 变量类型。 */
+  /** DTA 变量类型 */
   type: string
-  /** 是否为字符串列。 */
+  /** 是否为字符串列 */
   isString: boolean
 }
 
-/** 视图重建配置。 */
-export interface RebuildViewOptions {
-  /** 处理多少行后让出事件循环。 */
+/** 视图重建配置 */
+interface RebuildViewOptions {
+  /** 处理多少行后让出事件循环 */
   yieldEvery?: number
 }
 
-/** 某次异步视图重建已经被更新的筛选或排序请求取代。 */
+// ---------- 过期更新 ----------
+
+/** 某次异步视图重建已经被更新的筛选或排序请求取代 */
 export class StaleDtaViewUpdateError extends Error {
   constructor() {
     super('视图更新已被新的筛选或排序请求取代。')
   }
 }
 
-/** 判断错误是否来自过期视图重建。 */
+/** 判断错误是否来自过期视图重建 */
 export function isStaleDtaViewUpdateError(error: unknown): error is StaleDtaViewUpdateError {
   return error instanceof StaleDtaViewUpdateError
 }
@@ -54,6 +60,8 @@ export function isStaleDtaViewUpdateError(error: unknown): error is StaleDtaView
  * 针对 DtaColumnar 数据集的有状态查询服务
  */
 export class DtaView {
+  // ---------- 状态 ----------
+
   private data: DtaColumnar
   private readonly headerIndex: Map<string, number>
   private readonly pageColumns: PageColumn[]
@@ -62,6 +70,8 @@ export class DtaView {
   private indices: Uint32Array
   private compiledFilter: CompiledFilter | null = null
   private rebuildGeneration = 0
+
+  // ---------- 初始化 ----------
 
   constructor(data: DtaColumnar) {
     this.data = data
@@ -77,6 +87,8 @@ export class DtaView {
     for (let i = 0; i < N; i++)
       this.indices[i] = i
   }
+
+  // ---------- 元数据 ----------
 
   /**
    * 数据集的元数据（表头、类型、标签等）
@@ -113,10 +125,10 @@ export class DtaView {
     return this.filterSpec !== null && this.filterSpec.query.trim().length > 0
   }
 
+  // ---------- 配置更新 ----------
+
   /**
-   * 异步设置排序配置。
-   *
-   * 大文件排序会分块执行，避免长时间占用扩展宿主事件循环。
+   * 异步设置排序配置
    */
   public async setSortAsync(spec: SortSpec[], options?: RebuildViewOptions): Promise<void> {
     const generation = this.setSortSpec(spec)
@@ -124,9 +136,7 @@ export class DtaView {
   }
 
   /**
-   * 异步设置筛选配置。
-   *
-   * 大文件筛选会按行分批让出事件循环，新的筛选/排序会让旧任务自动过期。
+   * 异步设置筛选配置
    */
   public async setFilterAsync(spec: FilterSpec | null, options?: RebuildViewOptions): Promise<void> {
     const generation = this.setFilterSpec(spec)
@@ -134,7 +144,7 @@ export class DtaView {
   }
 
   /**
-   * 更新排序配置并推进视图重建世代。
+   * 更新排序配置并推进视图重建世代
    */
   private setSortSpec(spec: SortSpec[]): number {
     this.sortSpec = spec
@@ -144,7 +154,7 @@ export class DtaView {
   }
 
   /**
-   * 更新筛选配置并推进视图重建世代。
+   * 更新筛选配置并推进视图重建世代
    */
   private setFilterSpec(spec: FilterSpec | null): number {
     if (spec && spec.query.trim().length > 0) {
@@ -159,6 +169,8 @@ export class DtaView {
     return ++this.rebuildGeneration
   }
 
+  // ---------- 分页 ----------
+
   /**
    * 获取分页结果
    */
@@ -167,38 +179,13 @@ export class DtaView {
     const offset = Math.max(0, Math.min(req.offset, total))
     const limit = Math.max(0, Math.min(req.limit, total - offset))
 
-    const cols = req.columns
-      ? req.columns
-          .map(h => this.headerIndex.get(h))
-          .filter((j): j is number => j !== undefined)
-          .map(j => this.pageColumns[j])
-      : this.pageColumns
-    const K = cols.length
-
+    const cols = this.resolvePageColumns(req.columns)
     const rows = Array.from<any[]>({ length: limit })
     const rowIndices = Array.from<number>({ length: limit })
     for (let r = 0; r < limit; r++) {
       const rowIdx = this.indices[offset + r]
       rowIndices[r] = rowIdx
-      const row = Array.from<any>({ length: K })
-      for (let j = 0; j < K; j++) {
-        const c = cols[j]
-        if (c.miss[rowIdx]) {
-          row[j] = null
-        }
-        else if (c.isString) {
-          row[j] = c.col[rowIdx]
-        }
-        else {
-          let v = c.col[rowIdx]
-          if (c.type === 'float' || c.type === 'double') {
-            if (typeof v === 'number' && Number.isFinite(v))
-              v = Math.round(v * 1e6) / 1e6
-          }
-          row[j] = v
-        }
-      }
-      rows[r] = row
+      rows[r] = this.readPageRow(rowIdx, cols)
     }
 
     return {
@@ -212,7 +199,44 @@ export class DtaView {
   }
 
   /**
-   * 异步重新构建视图。
+   * 按请求列名解析分页列缓存
+   */
+  private resolvePageColumns(columns?: string[]): PageColumn[] {
+    if (!columns)
+      return this.pageColumns
+
+    return columns
+      .map(header => this.headerIndex.get(header))
+      .filter((columnIndex): columnIndex is number => columnIndex !== undefined)
+      .map(columnIndex => this.pageColumns[columnIndex])
+  }
+
+  /**
+   * 读取单行分页数据
+   */
+  private readPageRow(rowIndex: number, columns: PageColumn[]): any[] {
+    return columns.map(column => this.readPageValue(rowIndex, column))
+  }
+
+  /**
+   * 读取分页单元格并统一处理缺失值和浮点展示精度
+   */
+  private readPageValue(rowIndex: number, column: PageColumn): string | number | null {
+    if (column.miss[rowIndex])
+      return null
+    if (column.isString)
+      return column.col[rowIndex] as string
+
+    const value = column.col[rowIndex]
+    if ((column.type === 'float' || column.type === 'double') && typeof value === 'number' && Number.isFinite(value))
+      return Math.round(value * 1e6) / 1e6
+    return value as number
+  }
+
+  // ---------- 重建 ----------
+
+  /**
+   * 异步重新构建视图
    */
   private async rebuildViewAsync(generation: number, options: RebuildViewOptions = {}): Promise<void> {
     const yieldEvery = normalizeChunkSize(options.yieldEvery, DEFAULT_REBUILD_YIELD_EVERY)
@@ -227,7 +251,7 @@ export class DtaView {
   }
 
   /**
-   * 异步按当前筛选器收集行索引。
+   * 异步按当前筛选器收集行索引
    */
   private async collectRowsAsync(
     compiledFilter: CompiledFilter | null,
@@ -263,7 +287,7 @@ export class DtaView {
   }
 
   /**
-   * 异步排序行索引。
+   * 异步排序行索引
    */
   private async sortRowsAsync(
     arr: number[],
@@ -306,8 +330,10 @@ export class DtaView {
     return chunks[0] ?? []
   }
 
+  // ---------- 排序 ----------
+
   /**
-   * 创建行比较函数。
+   * 创建行比较函数
    */
   private createRowComparator(sortSpec: SortSpec[]): (a: number, b: number) => number {
     const columns = this.data.columns
@@ -349,8 +375,10 @@ export class DtaView {
     }
   }
 
+  // ---------- 过期保护 ----------
+
   /**
-   * 确认当前视图重建仍然是最新任务。
+   * 确认当前视图重建仍然是最新任务
    */
   private assertFreshRebuild(generation: number): void {
     if (generation !== this.rebuildGeneration)
@@ -358,8 +386,10 @@ export class DtaView {
   }
 }
 
+// ---------- 辅助函数 ----------
+
 /**
- * 归一化分块大小。
+ * 归一化分块大小
  */
 function normalizeChunkSize(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value) || !value || value <= 0)
@@ -368,14 +398,14 @@ function normalizeChunkSize(value: number | undefined, fallback: number): number
 }
 
 /**
- * 让出一次事件循环，让 VS Code 能处理 UI 与后续消息。
+ * 让出一次事件循环，让 VS Code 能处理 UI 与后续消息
  */
 function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }
 
 /**
- * 合并两个已排序的行索引块。
+ * 合并两个已排序的行索引块
  */
 function mergeSortedRows(
   left: number[],

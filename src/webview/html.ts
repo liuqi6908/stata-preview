@@ -14,30 +14,33 @@ import { renderSwitch } from './components/switch'
 import { icon } from './icons'
 import { renderUsageGuideHtml } from './usageGuide'
 
-/** Webview 初始化数据。 */
-export interface DtaWebviewInitData extends DtaFileInfo {
-  /** 默认分页大小。 */
+// ---------- 类型 ----------
+
+/** Webview 初始化数据 */
+interface DtaWebviewInitData extends DtaFileInfo {
+  /** 默认分页大小 */
   pageSize: number
 }
 
-/** 渲染 Webview HTML 所需参数。 */
-export interface RenderDtaWebviewHtmlOptions {
-  /** VS Code Webview 实例。 */
+/** 渲染 Webview HTML 所需参数 */
+interface RenderDtaWebviewHtmlOptions {
+  /** VS Code Webview 实例 */
   webview: vscode.Webview
-  /** 扩展根 URI。 */
+  /** 扩展根 URI */
   extensionUri: vscode.Uri
-  /** 文件和分页启动数据。 */
+  /** 文件和分页启动数据 */
   initData: DtaWebviewInitData
 }
 
+// ---------- HTML 入口 ----------
+
 /**
- * 构建 DTA 预览 Webview 完整 HTML。
+ * 构建 DTA 预览 Webview 完整 HTML
  */
 export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): string {
   const { webview, extensionUri, initData } = options
   const styleUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'main.css'))
   const scriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'main.js'))
-  const modalScriptUri = webview.asWebviewUri(Uri.joinPath(extensionUri, 'dist', 'media', 'components', 'modal.js'))
   const closeTitle = l10n.t('Close')
   const htmlLang = getHtmlLang()
   const nonce = getNonce()
@@ -106,16 +109,17 @@ export function renderDtaWebviewHtml(options: RenderDtaWebviewHtmlOptions): stri
         const bootstrap = ${bootstrapJson};
         const vscode = acquireVsCodeApi();
       </script>
-      <script nonce="${nonce}" src="${modalScriptUri}"></script>
       <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`
 }
 
+// ---------- CSP 与脚本数据 ----------
+
 /**
- * 渲染 Webview 内容安全策略。
+ * 渲染 Webview 内容安全策略
  *
- * 默认拒绝全部资源，仅允许当前 Webview 资源根中的样式、字体和带 nonce 的脚本。
+ * 默认拒绝全部资源，仅允许当前 Webview 资源根中的样式、字体和带 nonce 的脚本
  */
 function renderContentSecurityPolicy(webview: vscode.Webview, nonce: string): string {
   return [
@@ -133,7 +137,7 @@ function renderContentSecurityPolicy(webview: vscode.Webview, nonce: string): st
 }
 
 /**
- * 生成脚本 nonce。
+ * 生成脚本 nonce
  */
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
@@ -144,7 +148,7 @@ function getNonce(): string {
 }
 
 /**
- * 将 JSON 安全地嵌入 <script>。
+ * 将 JSON 安全地嵌入 <script>
  */
 function stringifyScriptJson(value: unknown): string {
   return JSON.stringify(value)
@@ -156,7 +160,7 @@ function stringifyScriptJson(value: unknown): string {
 }
 
 /**
- * 根据当前 VS Code 语言环境生成 HTML lang 属性值。
+ * 根据当前 VS Code 语言环境生成 HTML lang 属性值
  */
 function getHtmlLang(): string {
   const language = env.language || 'en'
@@ -167,8 +171,10 @@ function getHtmlLang(): string {
     .join('-')
 }
 
+// ---------- 页面结构 ----------
+
 /**
- * 渲染顶部工具栏。
+ * 渲染顶部工具栏
  */
 function renderToolbar(): string {
   return `
@@ -202,7 +208,7 @@ function renderToolbar(): string {
 }
 
 /**
- * 渲染数据网格容器。
+ * 渲染数据网格容器
  */
 function renderGrid(): string {
   return `
@@ -221,7 +227,7 @@ function renderGrid(): string {
 }
 
 /**
- * 渲染行详情面板。
+ * 渲染行详情面板
  */
 function renderRowDetailPanel(): string {
   return `
@@ -252,7 +258,7 @@ function renderRowDetailPanel(): string {
 }
 
 /**
- * 渲染分页器。
+ * 渲染分页器
  */
 function renderPagination(): string {
   return `
@@ -281,7 +287,7 @@ function renderPagination(): string {
 }
 
 /**
- * 渲染变量侧边栏。
+ * 渲染变量侧边栏
  */
 function renderSidebar(): string {
   return `
@@ -320,7 +326,7 @@ function renderSidebar(): string {
 }
 
 /**
- * 渲染初始加载界面。
+ * 渲染初始加载界面
  */
 function renderInitialLoading(): string {
   return `

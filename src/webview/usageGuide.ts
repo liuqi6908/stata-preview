@@ -6,18 +6,22 @@
 
 import { l10n } from 'vscode'
 
-/** 使用说明中的示例分组。 */
+// ---------- 类型 ----------
+
+/** 使用说明中的示例分组 */
 interface UsageExampleGroup {
-  /** 分组标题。 */
+  /** 分组标题 */
   title: string
-  /** 分组说明。 */
+  /** 分组说明 */
   description: string
-  /** 代码示例。 */
+  /** 代码示例 */
   examples: string[]
 }
 
+// ---------- 渲染 ----------
+
 /**
- * 渲染使用说明弹窗内容。
+ * 渲染使用说明弹窗内容
  */
 export function renderUsageGuideHtml(): string {
   return `
@@ -89,8 +93,10 @@ export function renderUsageGuideHtml(): string {
   `
 }
 
+// ---------- 示例数据 ----------
+
 /**
- * 渲染全部示例分组。
+ * 渲染全部示例分组
  */
 function renderExampleGroups(): string {
   const groups: UsageExampleGroup[] = [

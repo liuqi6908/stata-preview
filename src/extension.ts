@@ -8,6 +8,8 @@ import type { ExtensionContext } from 'vscode'
 import { l10n } from 'vscode'
 import { DtaEditorProvider } from './editor/dtaEditorProvider'
 
+// ---------- 生命周期 ----------
+
 /**
  * 扩展激活入口
  */

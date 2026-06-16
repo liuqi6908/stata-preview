@@ -1,10 +1,11 @@
-import type { DtaColumnar } from '../src/dta/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildVariableDictionaryAsync, tabulateColumnar } from '../src/dta/tabulator'
-import { createColumnarFixture } from './helpers/dtaFixture'
+import { createColumnarFixture, createHighCardinalityFixture } from './helpers/dtaFixture'
 
-test('变量统计能返回带值标签的离散变量汇总', () => {
+// ---------- 变量统计 ----------
+
+test('变量统计能返回带值标签的离散变量统计', () => {
   const result = tabulateColumnar(createColumnarFixture(), 'group')
 
   assert.equal(result.kind, 'discrete')
@@ -30,6 +31,8 @@ test('变量统计能返回连续变量描述统计和缺失数量', () => {
   assert.equal(result.chart.type, 'histogram')
 })
 
+// ---------- 缺失值 ----------
+
 test('变量统计会把空字符串视为缺失，同时保留纯空白字符串', () => {
   const result = tabulateColumnar(createColumnarFixture(), 'city')
 
@@ -38,6 +41,8 @@ test('变量统计会把空字符串视为缺失，同时保留纯空白字符�
   assert.equal(result.nMissing, 1)
   assert.ok(result.entries.some(entry => entry.value === '  '))
 })
+
+// ---------- 变量字典 ----------
 
 test('变量字典会汇总序号、统计类型、有效数、缺失数和唯一值', async () => {
   const dictionary = await buildVariableDictionaryAsync(createColumnarFixture(), { yieldEvery: 1 })
@@ -68,26 +73,10 @@ test('变量字典会汇总序号、统计类型、有效数、缺失数和唯�
   assert.equal(byName.get('city')?.statType, 'discrete')
 })
 
+// ---------- 高基数 ----------
+
 test('变量统计和变量字典都会返回超过 200 的精确唯一值', async () => {
-  const nobs = 250
-  const data: DtaColumnar = {
-    meta: {
-      headers: ['x'],
-      labels: ['High cardinality'],
-      types: ['double'],
-      typeSizes: [8],
-      valueLabels: {},
-      nobs,
-      release: 118,
-      byteOrder: 'LSF',
-    },
-    columns: {
-      x: Float64Array.from({ length: nobs }, (_, i) => i + 0.5),
-    },
-    missing: {
-      x: new Uint8Array(nobs),
-    },
-  }
+  const data = createHighCardinalityFixture()
 
   const result = tabulateColumnar(data, 'x')
   const dictionary = await buildVariableDictionaryAsync(data, { yieldEvery: 50 })

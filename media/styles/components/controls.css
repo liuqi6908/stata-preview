@@ -1,0 +1,177 @@
+/* 开关 */
+.toolbar-switch {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--vscode-button-secondaryForeground);
+
+  & .switch {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    flex: 0 0 auto;
+
+    & .switch-input {
+      display: none;
+    }
+
+    & .switch-label {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      cursor: pointer;
+      border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+      background: var(--vscode-input-background);
+      transition: background-color 120ms ease, border-color 120ms ease;
+
+      &::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--vscode-foreground);
+        transition: transform 120ms ease;
+      }
+    }
+
+    & .switch-input:checked {
+      & + .switch-label {
+        border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+        background: var(--vscode-inputOption-activeBackground, var(--vscode-button-background));
+
+        &::before {
+          transform: translateX(14px);
+        }
+      }
+    }
+  }
+
+  & .toolbar-switch-label {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+}
+
+/* 分段控件 */
+.segmented-control {
+  height: 24px;
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  background: var(--vscode-input-background);
+
+  & .segmented-option {
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--vscode-button-secondaryForeground);
+    background: transparent;
+
+    &:not(:last-child) {
+      border-right: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    }
+
+    &.active {
+      color: var(--vscode-inputOption-activeForeground, var(--vscode-button-foreground));
+      background: var(--vscode-inputOption-activeBackground, var(--vscode-button-background));
+    }
+  }
+}
+
+/* 右键菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 1100;
+  min-width: 180px;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+
+  & button {
+    width: 100%;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 8px;
+    border: none;
+    border-radius: 3px;
+    position: relative;
+    color: inherit;
+    background: transparent;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: default;
+
+    &:not(:disabled):hover {
+      color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+      background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+    }
+
+    &:disabled {
+      opacity: 0.45;
+    }
+
+    &.context-menu-submenu-trigger {
+      padding-right: 22px;
+
+      &::after {
+        content: "›";
+        position: absolute;
+        right: 8px;
+        font-size: 14px;
+        color: var(--vscode-descriptionForeground);
+      }
+    }
+
+    &.context-menu-item-with-detail {
+      height: auto;
+      min-height: 42px;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 2px;
+      padding: 5px 8px;
+
+      & .context-menu-item-label,
+      & .context-menu-item-detail {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      & .context-menu-item-detail {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      &:not(:disabled):hover .context-menu-item-detail {
+        color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+      }
+    }
+  }
+
+  &.context-submenu {
+    min-width: 190px;
+  }
+
+  & .context-menu-separator {
+    height: 1px;
+    margin: 4px;
+    background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+  }
+}

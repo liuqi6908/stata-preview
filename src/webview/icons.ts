@@ -5,8 +5,10 @@
  * 便于 HTML 模板复用和后续替换。
  */
 
-/** Webview 图标名称。 */
-export type WebviewIcon
+// ---------- 类型 ----------
+
+/** Webview 图标名称 */
+type WebviewIcon
   = | 'help'
     | 'filter'
     | 'refresh'
@@ -19,8 +21,10 @@ export type WebviewIcon
     | 'panelRight'
     | 'close'
 
+// ---------- 渲染 ----------
+
 /**
- * 渲染指定图标的 SVG 字符串。
+ * 渲染指定图标的 SVG 字符串
  */
 export function icon(name: WebviewIcon, size = 18): string {
   const d = iconPath(name)
@@ -34,8 +38,10 @@ export function icon(name: WebviewIcon, size = 18): string {
   </svg>`
 }
 
+// ---------- 图标路径 ----------
+
 /**
- * 返回图标 path 内容。
+ * 返回图标 path 内容
  */
 function iconPath(name: WebviewIcon): string {
   switch (name) {

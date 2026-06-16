@@ -1,0 +1,12 @@
+/* 数据表格 */
+#data-table {
+  & tbody tr {
+    cursor: default;
+
+    &.row-selected,
+    &.row-selected:hover {
+      color: var(--vscode-list-activeSelectionForeground, var(--vscode-list-inactiveSelectionForeground));
+      background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
+    }
+  }
+}

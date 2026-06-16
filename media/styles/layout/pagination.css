@@ -1,0 +1,43 @@
+/* 分页器 */
+#pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  position: relative;
+  font-size: 12px;
+
+  & #pagination-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+
+    & #page-info {
+      margin-inline: 4px;
+    }
+
+    & #page-size-wrap {
+      margin-left: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+  }
+
+  & #pagination-right {
+    margin-left: auto;
+  }
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: -1px;
+    width: 100%;
+    height: 1px;
+    z-index: 1;
+    background: var(--vscode-panel-border);
+  }
+}

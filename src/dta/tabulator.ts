@@ -1,232 +1,114 @@
 /**
- * DTA 单变量汇总统计。
+ * DTA 单变量统计。
  *
  * 输入列式数据和可选行索引，输出 Webview 变量统计弹窗所需的统一结构。
  */
 
-import type { ContinuousTab, DtaColumnar, TabulateResult, VariableDictionaryEntry } from './types'
+import type { ContinuousTab, DiscreteTab, DtaColumnar, StringTab, TabulateResult, VariableDictionaryEntry } from './types'
 import { l10n } from 'vscode'
 
-/** 离散型变量的最大类别数。 */
+// ---------- 配置 ----------
+
+/** 离散型变量的最大类别数 */
 const MAX_DISCRETE_CATEGORIES = 20
-/** 整数型变量若唯一值数不超过此阈值，则显示每值柱状图。 */
+/** 整数型变量若唯一值数不超过此阈值，则显示每值柱状图 */
 const MAX_INT_BAR_VALUES = 200
-/** 连续变量直方图分箱数。 */
+/** 连续变量直方图分箱数 */
 const HISTOGRAM_BINS = 30
-/** 变量字典每扫描多少个观测让出一次事件循环。 */
+/** 变量字典每扫描多少个观测让出一次事件循环 */
 const DEFAULT_DICTIONARY_YIELD_EVERY = 50000
 
-/** 构建变量字典摘要的配置。 */
-export interface VariableDictionaryBuildOptions {
-  /** 扫描多少个观测后让出事件循环。 */
+// ---------- 类型 ----------
+
+/** 构建变量字典摘要的配置 */
+interface VariableDictionaryBuildOptions {
+  /** 扫描多少个观测后让出事件循环 */
   yieldEvery?: number
-  /** 调用方可在分块间检查取消或过期状态。 */
+  /** 调用方可在分块间检查取消或过期状态 */
   checkCancelled?: () => void
 }
 
-/** 单变量统计采集结果，供变量统计弹窗和变量字典共用。 */
+/** 单变量统计采集结果，供变量统计弹窗和变量字典共用 */
 interface VariableProfile {
-  /** 变量名。 */
+  /** 变量名 */
   varName: string
-  /** 变量列序号。 */
+  /** 变量列序号 */
   colIndex: number
-  /** DTA 变量类型。 */
+  /** DTA 变量类型 */
   colType: string
-  /** 是否为数值列。 */
+  /** 是否为数值列 */
   isNumeric: boolean
-  /** 是否为字符串列。 */
+  /** 是否为字符串列 */
   isString: boolean
-  /** 变量标签。 */
+  /** 变量标签 */
   label: string
-  /** 值标签映射。 */
+  /** 值标签映射 */
   labelMap?: { [value: number]: string }
-  /** 数值列的有效值。 */
+  /** 数值列的有效值 */
   numericValues: number[]
-  /** 字符串列的有效值。 */
+  /** 字符串列的有效值 */
   stringValues: string[]
-  /** 精确唯一值频数。 */
+  /** 精确唯一值频数 */
   uniqueCounter: Map<any, number>
-  /** 有效观测数。 */
+  /** 有效观测数 */
   nValid: number
-  /** 缺失观测数。 */
+  /** 缺失观测数 */
   nMissing: number
-  /** 与变量统计弹窗一致的统计展示类型。 */
+  /** 与变量统计弹窗一致的统计展示类型 */
   statType: TabulateResult['kind']
 }
 
-/** 单变量统计采集中的可变状态。 */
+/** 单变量统计采集中的可变状态 */
 interface VariableProfileBuilder {
-  /** 列式数据集。 */
+  /** 列式数据集 */
   columnar: DtaColumnar
-  /** 变量名。 */
+  /** 变量名 */
   varName: string
-  /** 变量列序号。 */
+  /** 变量列序号 */
   colIndex: number
-  /** DTA 变量类型。 */
+  /** DTA 变量类型 */
   colType: string
-  /** 是否为数值列。 */
+  /** 是否为数值列 */
   isNumeric: boolean
-  /** 是否为字符串列。 */
+  /** 是否为字符串列 */
   isString: boolean
-  /** 是否保留有效值数组。 */
+  /** 是否保留有效值数组 */
   collectValues: boolean
-  /** 数值列的有效值。 */
+  /** 数值列的有效值 */
   numericValues: number[]
-  /** 字符串列的有效值。 */
+  /** 字符串列的有效值 */
   stringValues: string[]
-  /** 精确唯一值频数。 */
+  /** 精确唯一值频数 */
   uniqueCounter: Map<any, number>
-  /** 缺失观测数。 */
+  /** 缺失观测数 */
   nMissing: number
 }
 
+// ---------- 统计入口 ----------
+
 /**
- * 使用列式数据为单个变量计算汇总结果。
+ * 使用列式数据为单个变量计算汇总结果
  *
- * 如果提供 indices，则只汇总指定行；否则汇总完整数据集。
+ * 如果提供 indices，则只汇总指定行；否则汇总完整数据集
  */
 export function tabulateColumnar(columnar: DtaColumnar, varName: string, indices?: Uint32Array): TabulateResult {
   const profile = collectVariableProfile(columnar, varName, indices)
-  if (!profile.isNumeric && !profile.isString) {
-    return {
-      kind: 'string',
-      varName,
-      nValid: 0,
-      nMissing: profile.nMissing,
-      nUnique: 0,
-      topValues: [],
-    }
-  }
-
-  if (profile.statType === 'discrete') {
-    const total = profile.nValid
-    const sortedKeys = [...profile.uniqueCounter.keys()].sort((a, b) => {
-      if (typeof a === 'number' && typeof b === 'number')
-        return a - b
-      return String(a).localeCompare(String(b))
-    })
-
-    let cum = 0
-    const entries = sortedKeys.map((k) => {
-      const freq = profile.uniqueCounter.get(k)!
-      const pct = total > 0 ? (freq / total) * 100 : 0
-      cum += pct
-      const lbl = profile.labelMap && profile.labelMap[k]
-      return { value: k, label: lbl, freq, pct, cum }
-    })
-
-    return {
-      kind: 'discrete',
-      varName,
-      nValid: profile.nValid,
-      nMissing: profile.nMissing,
-      nUnique: profile.uniqueCounter.size,
-      entries,
-    }
-  }
-
-  if (profile.isNumeric) {
-    const arr = profile.numericValues
-    const sorted = [...arr].sort((a, b) => a - b)
-    const n = sorted.length
-    const min = sorted[0]
-    const max = sorted[n - 1]
-    const sum = arr.reduce((a, b) => a + b, 0)
-    const mean = sum / n
-    let sqSum = 0
-    for (let i = 0; i < n; i++) {
-      const d = arr[i] - mean
-      sqSum += d * d
-    }
-    const sd = n > 1 ? Math.sqrt(sqSum / (n - 1)) : 0
-
-    const pct = (p: number): number => {
-      if (n === 0)
-        return Number.NaN
-      const idx = (p / 100) * (n - 1)
-      const lo = Math.floor(idx)
-      const hi = Math.ceil(idx)
-      if (lo === hi)
-        return sorted[lo]
-      return sorted[lo] * (hi - idx) + sorted[hi] * (idx - lo)
-    }
-
-    // 整数型高唯一值使用每值柱状图，否则使用连续直方图。
-    const allInts = allUniqueValuesAreIntegers(profile.uniqueCounter)
-    const useBars = allInts
-      && profile.uniqueCounter.size > MAX_DISCRETE_CATEGORIES
-      && profile.uniqueCounter.size <= MAX_INT_BAR_VALUES
-
-    let chart: ContinuousTab['chart']
-    if (useBars) {
-      const bars = [...profile.uniqueCounter.entries()]
-        .map(([value, count]) => ({ value, count }))
-        .sort((a, b) => a.value - b.value)
-      chart = { type: 'bars', bars }
-    }
-    else {
-      const histogram: { bin: number, lo: number, hi: number, count: number }[] = []
-      if (min === max) {
-        histogram.push({ bin: 0, lo: min, hi: max, count: n })
-      }
-      else {
-        const bins = HISTOGRAM_BINS
-        const width = (max - min) / bins
-        const counts = Array.from<number>({ length: bins }).fill(0)
-        for (let i = 0; i < n; i++) {
-          let b = Math.floor((arr[i] - min) / width)
-          if (b >= bins)
-            b = bins - 1
-          if (b < 0)
-            b = 0
-          counts[b]++
-        }
-        for (let b = 0; b < bins; b++) {
-          histogram.push({ bin: b, lo: min + b * width, hi: min + (b + 1) * width, count: counts[b] })
-        }
-      }
-      chart = { type: 'histogram', bins: histogram }
-    }
-
-    return {
-      kind: 'continuous',
-      varName,
-      nValid: n,
-      nMissing: profile.nMissing,
-      min,
-      max,
-      mean,
-      sd,
-      median: pct(50),
-      p1: pct(1),
-      p25: pct(25),
-      p75: pct(75),
-      p99: pct(99),
-      chart,
-      nUnique: profile.uniqueCounter.size,
-    }
-  }
-
-  const top = [...profile.uniqueCounter.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([value, freq]) => ({ value: String(value), freq, pct: (freq / profile.nValid) * 100 }))
-
-  return {
-    kind: 'string',
-    varName,
-    nValid: profile.nValid,
-    nMissing: profile.nMissing,
-    nUnique: profile.uniqueCounter.size,
-    topValues: top,
-  }
+  if (!profile.isNumeric && !profile.isString)
+    return createEmptyStringTabResult(profile)
+  if (profile.statType === 'discrete')
+    return createDiscreteTabResult(profile)
+  if (profile.isNumeric)
+    return createContinuousTabResult(profile)
+  return createStringTabResult(profile)
 }
 
+// ---------- 变量字典 ----------
+
 /**
- * 为当前数据集构建变量字典摘要。
+ * 为当前数据集构建变量字典摘要
  *
  * 字典需要完整扫描各列，才能给出精确缺失数和唯一值数量；这里按列分块让出
- * 事件循环，避免宽表或长表一次性占住扩展宿主。
+ * 事件循环，避免宽表或长表一次性占住扩展宿主
  */
 export async function buildVariableDictionaryAsync(
   columnar: DtaColumnar,
@@ -259,8 +141,176 @@ export async function buildVariableDictionaryAsync(
   return entries
 }
 
+// ---------- 统计结果 ----------
+
 /**
- * 同步采集单变量 profile。
+ * 创建空字符串统计结果
+ */
+function createEmptyStringTabResult(profile: VariableProfile): StringTab {
+  return {
+    kind: 'string',
+    varName: profile.varName,
+    nValid: 0,
+    nMissing: profile.nMissing,
+    nUnique: 0,
+    topValues: [],
+  }
+}
+
+/**
+ * 创建离散变量统计结果
+ */
+function createDiscreteTabResult(profile: VariableProfile): DiscreteTab {
+  const total = profile.nValid
+  const sortedKeys = [...profile.uniqueCounter.keys()].sort((a, b) => {
+    if (typeof a === 'number' && typeof b === 'number')
+      return a - b
+    return String(a).localeCompare(String(b))
+  })
+
+  let cum = 0
+  const entries = sortedKeys.map((value) => {
+    const freq = profile.uniqueCounter.get(value)!
+    const pct = total > 0 ? (freq / total) * 100 : 0
+    cum += pct
+    const label = profile.labelMap && profile.labelMap[value]
+    return { value, label, freq, pct, cum }
+  })
+
+  return {
+    kind: 'discrete',
+    varName: profile.varName,
+    nValid: profile.nValid,
+    nMissing: profile.nMissing,
+    nUnique: profile.uniqueCounter.size,
+    entries,
+  }
+}
+
+/**
+ * 创建连续变量统计结果
+ */
+function createContinuousTabResult(profile: VariableProfile): ContinuousTab {
+  const values = profile.numericValues
+  const sorted = [...values].sort((a, b) => a - b)
+  const n = sorted.length
+  const min = sorted[0]
+  const max = sorted[n - 1]
+  const sum = values.reduce((a, b) => a + b, 0)
+  const mean = sum / n
+  let sqSum = 0
+  for (let i = 0; i < n; i++) {
+    const d = values[i] - mean
+    sqSum += d * d
+  }
+  const sd = n > 1 ? Math.sqrt(sqSum / (n - 1)) : 0
+
+  return {
+    kind: 'continuous',
+    varName: profile.varName,
+    nValid: n,
+    nMissing: profile.nMissing,
+    min,
+    max,
+    mean,
+    sd,
+    median: percentile(sorted, n, 50),
+    p1: percentile(sorted, n, 1),
+    p25: percentile(sorted, n, 25),
+    p75: percentile(sorted, n, 75),
+    p99: percentile(sorted, n, 99),
+    chart: createContinuousChart(profile, min, max, n),
+    nUnique: profile.uniqueCounter.size,
+  }
+}
+
+/**
+ * 创建字符串变量统计结果
+ */
+function createStringTabResult(profile: VariableProfile): StringTab {
+  const topValues = [...profile.uniqueCounter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([value, freq]) => ({ value: String(value), freq, pct: (freq / profile.nValid) * 100 }))
+
+  return {
+    kind: 'string',
+    varName: profile.varName,
+    nValid: profile.nValid,
+    nMissing: profile.nMissing,
+    nUnique: profile.uniqueCounter.size,
+    topValues,
+  }
+}
+
+/**
+ * 创建连续变量图表数据
+ */
+function createContinuousChart(profile: VariableProfile, min: number, max: number, n: number): ContinuousTab['chart'] {
+  const useBars = allUniqueValuesAreIntegers(profile.uniqueCounter)
+    && profile.uniqueCounter.size > MAX_DISCRETE_CATEGORIES
+    && profile.uniqueCounter.size <= MAX_INT_BAR_VALUES
+
+  if (useBars) {
+    const bars = [...profile.uniqueCounter.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value - b.value)
+    return { type: 'bars', bars }
+  }
+
+  const bins = createHistogramBins(profile.numericValues, min, max, n)
+  return { type: 'histogram', bins }
+}
+
+/**
+ * 创建连续变量直方图分箱
+ */
+function createHistogramBins(values: number[], min: number, max: number, n: number): { bin: number, lo: number, hi: number, count: number }[] {
+  const histogram: { bin: number, lo: number, hi: number, count: number }[] = []
+  if (min === max) {
+    histogram.push({ bin: 0, lo: min, hi: max, count: n })
+    return histogram
+  }
+
+  const width = (max - min) / HISTOGRAM_BINS
+  const counts = Array.from<number>({ length: HISTOGRAM_BINS }).fill(0)
+  for (let i = 0; i < n; i++) {
+    let binIndex = Math.floor((values[i] - min) / width)
+    if (binIndex >= HISTOGRAM_BINS)
+      binIndex = HISTOGRAM_BINS - 1
+    if (binIndex < 0)
+      binIndex = 0
+    counts[binIndex]++
+  }
+  for (let binIndex = 0; binIndex < HISTOGRAM_BINS; binIndex++) {
+    histogram.push({
+      bin: binIndex,
+      lo: min + binIndex * width,
+      hi: min + (binIndex + 1) * width,
+      count: counts[binIndex],
+    })
+  }
+  return histogram
+}
+
+/**
+ * 计算排序数组的百分位数
+ */
+function percentile(sorted: number[], n: number, p: number): number {
+  if (n === 0)
+    return Number.NaN
+  const idx = (p / 100) * (n - 1)
+  const lo = Math.floor(idx)
+  const hi = Math.ceil(idx)
+  if (lo === hi)
+    return sorted[lo]
+  return sorted[lo] * (hi - idx) + sorted[hi] * (idx - lo)
+}
+
+// ---------- Profile 采集 ----------
+
+/**
+ * 同步采集单变量 profile
  */
 function collectVariableProfile(columnar: DtaColumnar, varName: string, indices?: Uint32Array): VariableProfile {
   const builder = createVariableProfileBuilder(columnar, varName, true)
@@ -271,7 +321,7 @@ function collectVariableProfile(columnar: DtaColumnar, varName: string, indices?
 }
 
 /**
- * 异步采集单变量 profile，供变量字典复用同一套统计口径。
+ * 异步采集单变量 profile，供变量字典复用同一套统计口径
  */
 async function collectVariableProfileAsync(
   columnar: DtaColumnar,
@@ -289,7 +339,7 @@ async function collectVariableProfileAsync(
 }
 
 /**
- * 创建单变量 profile 采集器。
+ * 创建单变量 profile 采集器
  */
 function createVariableProfileBuilder(
   columnar: DtaColumnar,
@@ -317,7 +367,7 @@ function createVariableProfileBuilder(
 }
 
 /**
- * 将一行值纳入 profile 统计。
+ * 将一行值纳入 profile 统计
  */
 function ingestProfileRow(builder: VariableProfileBuilder, rowIndex: number): void {
   const col = builder.columnar.columns[builder.varName]
@@ -349,7 +399,7 @@ function ingestProfileRow(builder: VariableProfileBuilder, rowIndex: number): vo
 }
 
 /**
- * 完成 profile 采集并推断统计类型。
+ * 完成 profile 采集并推断统计类型
  */
 function finishVariableProfile(builder: VariableProfileBuilder): VariableProfile {
   const labelMap = builder.columnar.meta.valueLabels[builder.varName]
@@ -374,7 +424,7 @@ function finishVariableProfile(builder: VariableProfileBuilder): VariableProfile
 }
 
 /**
- * 判断 profile 统计中的缺失值。
+ * 判断 profile 统计中的缺失值
  */
 function isProfileMissingValue(value: string | number, markedMissing: boolean, isString: boolean): boolean {
   if (markedMissing)
@@ -385,14 +435,14 @@ function isProfileMissingValue(value: string | number, markedMissing: boolean, i
 }
 
 /**
- * 累计精确唯一值频数。
+ * 累计精确唯一值频数
  */
 function addUniqueValue(counter: Map<any, number>, value: string | number): void {
   counter.set(value, (counter.get(value) || 0) + 1)
 }
 
 /**
- * 从精确唯一值频数反推有效观测数。
+ * 从精确唯一值频数反推有效观测数
  */
 function countProfileValidValues(counter: Map<any, number>): number {
   let total = 0
@@ -401,8 +451,10 @@ function countProfileValidValues(counter: Map<any, number>): number {
   return total
 }
 
+// ---------- Profile 推断 ----------
+
 /**
- * 使用与变量统计弹窗一致的规则推断字典中的统计类型。
+ * 使用与变量统计弹窗一致的规则推断字典中的统计类型
  */
 function inferProfileStatType(profile: VariableProfile): TabulateResult['kind'] {
   if (!profile.isNumeric && !profile.isString)
@@ -420,14 +472,14 @@ function inferProfileStatType(profile: VariableProfile): TabulateResult['kind'] 
 }
 
 /**
- * 是否为 DTA 数值存储类型。
+ * 是否为 DTA 数值存储类型
  */
 function isNumericDtaType(colType: string): boolean {
   return colType === 'byte' || colType === 'int' || colType === 'long' || colType === 'float' || colType === 'double'
 }
 
 /**
- * 浮点列只有唯一值全为整数时才按少量离散值展示。
+ * 浮点列只有唯一值全为整数时才按少量离散值展示
  */
 function allUniqueValuesAreIntegers(uniqueValues: Map<any, number>): boolean {
   for (const value of uniqueValues.keys()) {
@@ -437,8 +489,10 @@ function allUniqueValuesAreIntegers(uniqueValues: Map<any, number>): boolean {
   return true
 }
 
+// ---------- 异步调度 ----------
+
 /**
- * 归一化正整数配置。
+ * 归一化正整数配置
  */
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value) || !value || value <= 0)
@@ -447,7 +501,7 @@ function normalizePositiveInteger(value: number | undefined, fallback: number): 
 }
 
 /**
- * 让出变量字典扫描任务。
+ * 让出变量字典扫描任务
  */
 async function yieldVariableDictionaryChunk(options: VariableDictionaryBuildOptions): Promise<void> {
   options.checkCancelled?.()
@@ -456,7 +510,7 @@ async function yieldVariableDictionaryChunk(options: VariableDictionaryBuildOpti
 }
 
 /**
- * 让出一次事件循环。
+ * 让出一次事件循环
  */
 function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))

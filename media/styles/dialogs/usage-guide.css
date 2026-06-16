@@ -1,0 +1,89 @@
+/* 使用说明弹窗 */
+#usage-guide-modal {
+  & .modal-content {
+    max-width: 720px;
+  }
+
+  & #usage-guide-body {
+    line-height: 1.5;
+
+    & .usage-section {
+      padding: 10px 0;
+
+      &:first-child {
+        padding-top: 0;
+      }
+
+      &:not(:last-child) {
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+
+      & h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      & .usage-subsection {
+        margin-top: 10px;
+
+        &:first-of-type {
+          margin-top: 0;
+        }
+      }
+
+      & h4 {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      & ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      & li + li {
+        margin-top: 4px;
+      }
+    }
+
+    & .usage-example-groups {
+      display: grid;
+      gap: 10px;
+
+      & .usage-example-group {
+        padding-left: 10px;
+        border-left: 2px solid var(--vscode-panel-border);
+
+        & h5 {
+          margin: 0 0 3px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        & p {
+          margin: 0;
+          font-size: 12px;
+          color: var(--vscode-descriptionForeground);
+        }
+      }
+    }
+
+    & .usage-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+
+      & code {
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+        color: var(--vscode-textPreformat-foreground, var(--vscode-editor-foreground));
+        background: var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background));
+      }
+    }
+  }
+}

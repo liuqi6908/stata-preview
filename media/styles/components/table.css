@@ -1,0 +1,163 @@
+/* 表格 */
+table {
+  width: 100%;
+  line-height: 1.4em;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-width: 1px 0 0 1px;
+  border-style: solid;
+  border-color: var(--vscode-panel-border);
+
+  & th,
+  & td {
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    position: relative;
+    border-width: 0 1px 1px 0;
+    border-style: solid;
+    border-color: var(--vscode-panel-border);
+
+    &.cell-missing,
+    &.cell-blank {
+      &::after {
+        content: "";
+        display: block;
+        height: 1.4em;
+      }
+    }
+  }
+
+  & thead {
+    & tr {
+      position: sticky;
+      top: 1px;
+      z-index: 10;
+    }
+
+    & th {
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      min-width: 0;
+      background: var(--vscode-editor-background);
+
+      &:hover {
+        background: var(--vscode-list-hoverBackground);
+      }
+
+      &.sort-asc::after {
+        content: "▲";
+        opacity: 0.7;
+        margin-left: 8px;
+        position: relative;
+        top: -1px;
+      }
+
+      &.sort-desc::after {
+        content: "▼";
+        opacity: 0.7;
+        margin-left: 8px;
+        position: relative;
+        top: -1px;
+      }
+
+      &[data-sort]::before {
+        content: attr(data-sort);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        top: 50%;
+        right: 8px;
+        transform: translateY(-50%);
+        font-size: 10px;
+        font-weight: 400;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        z-index: 1;
+        border: 1px solid var(--vscode-editor-foreground);
+        background: var(--vscode-editor-background);
+      }
+
+      & .resize-handle {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        cursor: col-resize;
+        background: transparent;
+        z-index: 11;
+
+        &:hover {
+          background: var(--vscode-sash-hoverBorder);
+        }
+      }
+
+      &.is-resizing {
+        background: var(--vscode-list-hoverBackground);
+
+        & .resize-handle {
+          background: var(--vscode-sash-hoverBorder);
+        }
+      }
+    }
+  }
+
+  &:has(thead th.is-resizing) {
+    user-select: none;
+    cursor: col-resize;
+
+    & * {
+      pointer-events: none;
+    }
+  }
+
+  & tbody {
+    & tr {
+      &.v-spacer {
+        pointer-events: none;
+      }
+
+      &:hover {
+        background: var(--vscode-list-hoverBackground);
+      }
+    }
+  }
+
+  &.flat {
+    font-size: 12px;
+    border-collapse: collapse;
+
+    & thead {
+      & tr {
+        position: static;
+
+        & th {
+          cursor: default;
+          background: var(--vscode-sideBar-background);
+        }
+      }
+    }
+
+    & .cell-right {
+      text-align: right;
+    }
+
+    & .bar-cell {
+      width: 162px;
+    }
+  }
+
+  &.highlight-missing {
+    & td.cell-missing {
+      box-shadow: inset 0 0 0 1px var(--vscode-inputValidation-warningBorder, rgba(204, 167, 0, 0.65));
+      background: var(--vscode-inputValidation-warningBackground, rgba(204, 167, 0, 0.14));
+    }
+  }
+}

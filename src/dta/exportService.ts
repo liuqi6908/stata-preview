@@ -21,30 +21,34 @@ import {
   isDtaExportCancelledError,
 } from './tableExporter'
 
-/** 导出当前表格视图所需的参数。 */
-export interface ExportDtaViewOptions {
-  /** 源 DTA 文件 URI，用于生成默认导出路径。 */
+// ---------- 类型 ----------
+
+/** 导出当前表格视图所需的参数 */
+interface ExportDtaViewOptions {
+  /** 源 DTA 文件 URI，用于生成默认导出路径 */
   sourceUri: vscode.Uri
-  /** 当前筛选和排序后的查询视图。 */
+  /** 当前筛选和排序后的查询视图 */
   view: DtaView
-  /** 导出格式。 */
+  /** 导出格式 */
   format: TableExportFormat
-  /** 导出的列名列表，顺序与 Webview 可见列一致。 */
+  /** 导出的列名列表，顺序与 Webview 可见列一致 */
   columns: string[]
 }
 
-/** 导出变量字典所需的参数。 */
-export interface ExportVariableDictionaryOptions {
-  /** 源 DTA 文件 URI，用于生成默认导出路径。 */
+/** 导出变量字典所需的参数 */
+interface ExportVariableDictionaryOptions {
+  /** 源 DTA 文件 URI，用于生成默认导出路径 */
   sourceUri: vscode.Uri
-  /** 变量字典摘要。 */
+  /** 变量字典摘要 */
   entries: VariableDictionaryEntry[]
-  /** 导出格式。 */
+  /** 导出格式 */
   format: TableExportFormat
 }
 
+// ---------- 导出入口 ----------
+
 /**
- * 导出当前查询视图，并返回实际保存的 URI；用户取消时返回 null。
+ * 导出当前查询视图，并返回实际保存的 URI；用户取消时返回 null
  */
 export async function exportDtaView(options: ExportDtaViewOptions): Promise<vscode.Uri | null> {
   const { sourceUri, view, format, columns } = options
@@ -102,7 +106,7 @@ export async function exportDtaView(options: ExportDtaViewOptions): Promise<vsco
 }
 
 /**
- * 导出变量字典，并返回实际保存的 URI；用户取消时返回 null。
+ * 导出变量字典，并返回实际保存的 URI；用户取消时返回 null
  */
 export async function exportVariableDictionary(options: ExportVariableDictionaryOptions): Promise<vscode.Uri | null> {
   const { sourceUri, entries, format } = options
@@ -163,8 +167,10 @@ export async function exportVariableDictionary(options: ExportVariableDictionary
   return saveUri
 }
 
+// ---------- 进度 ----------
+
 /**
- * 生成 VS Code 进度通知回调。
+ * 生成 VS Code 进度通知回调
  */
 function createExportProgressReporter(
   progress: vscode.Progress<{ message?: string, increment?: number }>,
@@ -192,15 +198,17 @@ function createExportProgressReporter(
   }
 }
 
+// ---------- 容量限制 ----------
+
 /**
- * 检查目标格式的容量限制。
+ * 检查目标格式的容量限制
  */
 function assertExportLimits(view: DtaView, format: TableExportFormat, columns: string[]): void {
   assertRowsExportLimits(view.totalFiltered, columns.length, format)
 }
 
 /**
- * 检查行源导出的容量限制。
+ * 检查行源导出的容量限制
  */
 function assertRowsExportLimits(totalRows: number, columnCount: number, format: TableExportFormat): void {
   if (format !== 'xlsx')
@@ -220,8 +228,10 @@ function assertRowsExportLimits(totalRows: number, columnCount: number, format: 
   }
 }
 
+// ---------- 保存路径 ----------
+
 /**
- * 生成导出文件默认路径。
+ * 生成导出文件默认路径
  */
 function getExportDefaultUri(sourceUri: vscode.Uri, ext: string, suffix = ''): vscode.Uri | undefined {
   const sourcePath = sourceUri.scheme === 'file' ? sourceUri.fsPath : sourceUri.path
@@ -236,14 +246,16 @@ function getExportDefaultUri(sourceUri: vscode.Uri, ext: string, suffix = ''): v
 }
 
 /**
- * 格式化 URI 以便展示给用户。
+ * 格式化 URI 以便展示给用户
  */
 export function formatUriForDisplay(uri: vscode.Uri): string {
   return uri.scheme === 'file' ? uri.fsPath : uri.toString(true)
 }
 
+// ---------- 变量字典行 ----------
+
 /**
- * 变量字典导出的表头。
+ * 变量字典导出的表头
  */
 function getVariableDictionaryExportColumns(): string[] {
   return [
@@ -259,7 +271,7 @@ function getVariableDictionaryExportColumns(): string[] {
 }
 
 /**
- * 将变量字典摘要转换为导出行。
+ * 将变量字典摘要转换为导出行
  */
 function createVariableDictionaryRows(
   entries: VariableDictionaryEntry[],
@@ -279,7 +291,7 @@ function createVariableDictionaryRows(
 }
 
 /**
- * 导出变量字典时本地化统计类型。
+ * 导出变量字典时本地化统计类型
  */
 function formatDictionaryStatType(statType: VariableDictionaryEntry['statType']): string {
   if (statType === 'continuous')
@@ -290,7 +302,7 @@ function formatDictionaryStatType(statType: VariableDictionaryEntry['statType'])
 }
 
 /**
- * 格式化缺失数与缺失率。
+ * 格式化缺失数与缺失率
  */
 function formatMissingSummary(nMissing: number, nValid: number): string {
   const total = nMissing + nValid

@@ -1,7 +1,9 @@
 import type { DtaColumnar } from '../../src/dta/types'
 
+// ---------- 小型数据集 ----------
+
 /**
- * 构造小型列式数据集，供筛选、分页、统计和导出单测复用。
+ * 构造小型列式数据集，供筛选、分页、统计和导出单测复用
  *
  * 数据刻意包含：
  *   - 数值缺失值；
@@ -40,6 +42,32 @@ export function createColumnarFixture(): DtaColumnar {
       score: new Uint8Array([0, 0, 1, 0, 0]),
       city: new Uint8Array([0, 0, 1, 0, 0]),
       group: new Uint8Array([0, 0, 0, 0, 0]),
+    },
+  }
+}
+
+// ---------- 高基数数据集 ----------
+
+/**
+ * 构造唯一值超过 200 的数值列，用于验证统计和变量字典不会降级为近似计数
+ */
+export function createHighCardinalityFixture(nobs = 250): DtaColumnar {
+  return {
+    meta: {
+      headers: ['x'],
+      labels: ['High cardinality'],
+      types: ['double'],
+      typeSizes: [8],
+      valueLabels: {},
+      nobs,
+      release: 118,
+      byteOrder: 'LSF',
+    },
+    columns: {
+      x: Float64Array.from({ length: nobs }, (_, i) => i + 0.5),
+    },
+    missing: {
+      x: new Uint8Array(nobs),
     },
   }
 }

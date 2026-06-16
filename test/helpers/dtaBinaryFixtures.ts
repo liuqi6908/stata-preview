@@ -1,33 +1,46 @@
 import type { ByteOrder } from '../../src/dta/types'
 import { Buffer } from 'node:buffer'
 
-/** 旧版二进制 .dta fixture 支持的 release。 */
+// ---------- 类型与常量 ----------
+
+/** 旧版二进制 .dta fixture 支持的 release */
 export type LegacyFixtureRelease = 113 | 114 | 115
 
-/** 现代 XML 包装 .dta fixture 支持的 release。 */
+/** 现代 XML 包装 .dta fixture 支持的 release */
 export type ModernFixtureRelease = 117 | 118 | 119
 
+/** fixture 覆盖的字节序 */
+export const fixtureByteOrders = ['LSF', 'MSF'] as const
+
+/** fixture 覆盖的旧版 release */
+export const legacyFixtureReleases = [113, 114, 115] as const
+
+/** fixture 覆盖的现代 release */
+export const modernFixtureReleases = [117, 118, 119] as const
+
 interface ModernFormatSpec {
-  /** 变量名字段长度。 */
+  /** 变量名字段长度 */
   varnameLen: number
-  /** 变量标签字段长度。 */
+  /** 变量标签字段长度 */
   varlabelLen: number
-  /** 显示格式字段长度。 */
+  /** 显示格式字段长度 */
   formatLen: number
-  /** 值标签名称字段长度。 */
+  /** 值标签名称字段长度 */
   valueLabelNameLen: number
-  /** 观测数字段字节数。 */
+  /** 观测数字段字节数 */
   nobsBytes: 4 | 8
-  /** 变量数量字段字节数。 */
+  /** 变量数量字段字节数 */
   kBytes: 2 | 4
-  /** 字符串编码。 */
+  /** 字符串编码 */
   encoding: BufferEncoding
 }
 
+// ---------- fixture 入口 ----------
+
 /**
- * 创建覆盖旧版 113/114/115 格式的最小二进制 .dta。
+ * 创建覆盖旧版 113/114/115 格式的最小二进制 .dta
  *
- * 数据包含 long、double、str8、byte 四类变量，并绑定一个值标签表。
+ * 数据包含 long、double、str8、byte 四类变量，并绑定一个值标签表
  */
 export function createLegacyDtaBuffer(release: LegacyFixtureRelease, byteOrder: ByteOrder): Buffer {
   const variables = [
@@ -76,9 +89,9 @@ export function createLegacyDtaBuffer(release: LegacyFixtureRelease, byteOrder: 
 }
 
 /**
- * 创建覆盖现代 117/118/119 格式的最小二进制 .dta。
+ * 创建覆盖现代 117/118/119 格式的最小二进制 .dta
  *
- * 数据包含 strL 长字符串引用，用于验证 <strls> GSO 记录解析。
+ * 数据包含 strL 长字符串引用，用于验证 `<strls>` GSO 记录解析
  */
 export function createModernDtaBuffer(release: ModernFixtureRelease, byteOrder: ByteOrder): Buffer {
   const fmt = modernFormat(release)
@@ -142,8 +155,10 @@ export function createModernDtaBuffer(release: ModernFixtureRelease, byteOrder: 
   return out
 }
 
+// ---------- 行数据 ----------
+
 /**
- * 旧版 fixture 的单行数据。
+ * 旧版 fixture 的单行数据
  */
 function legacyRow(row: { id: number, score: number, name: string, group: number }, byteOrder: ByteOrder): Buffer {
   return Buffer.concat([
@@ -155,7 +170,7 @@ function legacyRow(row: { id: number, score: number, name: string, group: number
 }
 
 /**
- * 现代 fixture 的单行数据。
+ * 现代 fixture 的单行数据
  */
 function modernRow(
   release: ModernFixtureRelease,
@@ -170,8 +185,10 @@ function modernRow(
   ])
 }
 
+// ---------- strL ----------
+
 /**
- * 写入 strL 行内引用。不同 release 对 v/o 字段拆分方式不同。
+ * 写入 strL 行内引用，不同 release 对 v/o 字段拆分方式不同
  */
 function strLRef(release: ModernFixtureRelease, byteOrder: ByteOrder, v: number, o: number): Buffer {
   if (release === 117)
@@ -182,7 +199,7 @@ function strLRef(release: ModernFixtureRelease, byteOrder: ByteOrder, v: number,
 }
 
 /**
- * 构造 <strls> 中的单条 GSO 文本记录。
+ * 构造 `<strls>` 中的单条 GSO 文本记录
  */
 function strLRecord(
   release: ModernFixtureRelease,
@@ -203,8 +220,10 @@ function strLRecord(
   ])
 }
 
+// ---------- 值标签 ----------
+
 /**
- * 构造旧版格式的数据尾部值标签表。
+ * 构造旧版格式的数据尾部值标签表
  */
 function legacyValueLabelTable(name: string, labels: Record<number, string>, byteOrder: ByteOrder): Buffer {
   const body = valueLabelBody(name, labels, 33, 'latin1', byteOrder)
@@ -212,7 +231,7 @@ function legacyValueLabelTable(name: string, labels: Record<number, string>, byt
 }
 
 /**
- * 构造现代格式 <value_labels> 中的 <lbl> 块。
+ * 构造现代格式 `<value_labels>` 中的 `<lbl>` 块
  */
 function modernValueLabelBlock(
   name: string,
@@ -230,7 +249,7 @@ function modernValueLabelBlock(
 }
 
 /**
- * 构造值标签表的公共主体。
+ * 构造值标签表的公共主体
  */
 function valueLabelBody(
   name: string,
@@ -261,8 +280,10 @@ function valueLabelBody(
   ])
 }
 
+// ---------- 现代格式 ----------
+
 /**
- * 现代 release 的字段长度规格。
+ * 现代 release 的字段长度规格
  */
 function modernFormat(release: ModernFixtureRelease): ModernFormatSpec {
   if (release === 117) {
@@ -287,8 +308,10 @@ function modernFormat(release: ModernFixtureRelease): ModernFormatSpec {
   }
 }
 
+// ---------- Buffer 片段 ----------
+
 /**
- * 构造 NUL 终止的固定宽度字符串字段。
+ * 构造 NUL 终止的固定宽度字符串字段
  */
 function fixedString(value: string, len: number, encoding: BufferEncoding): Buffer {
   const out = Buffer.alloc(len)
@@ -297,7 +320,7 @@ function fixedString(value: string, len: number, encoding: BufferEncoding): Buff
 }
 
 /**
- * 构造 XML 风格标签。
+ * 构造 XML 风格标签
  */
 function tag(name: string, content: Buffer): Buffer {
   return Buffer.concat([
@@ -306,6 +329,8 @@ function tag(name: string, content: Buffer): Buffer {
     Buffer.from(`</${name}>`, 'latin1'),
   ])
 }
+
+// ---------- 数值写入 ----------
 
 function uint16(value: number, byteOrder: ByteOrder): Buffer {
   const out = Buffer.alloc(2)
@@ -351,7 +376,7 @@ function writeUInt64(buffer: Buffer, offset: number, value: number, byteOrder: B
 }
 
 /**
- * 写入 Stata strL 行引用使用的 2-6 字节无符号整数。
+ * 写入 Stata strL 行引用使用的 2-6 字节无符号整数
  */
 function packedUInt(value: number, byteLength: number, byteOrder: ByteOrder): Buffer {
   const out = Buffer.alloc(byteLength)

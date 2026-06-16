@@ -25,16 +25,18 @@
  *   data:              nobs * rowSize 字节
  *   value_labels:      可变长度，可选
  *
- * 参考：Stata Corp 113-115 版本 .dta 格式规范。
+ * 参考：Stata Corp 113-115 版本 .dta 格式规范
  */
 
 import type { Buffer } from 'node:buffer'
 import type { ColumnArray, DtaColumnar } from './types'
 import { l10n } from 'vscode'
 
-// ---------- 辅助函数 ----------
+// ---------- 类型 ----------
 
 type ByteOrder = 'LSF' | 'MSF'
+
+// ---------- 二进制读取 ----------
 
 function readUInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
   return byteOrder === 'LSF' ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset)
@@ -66,6 +68,8 @@ function readCString(buf: Buffer, offset: number, maxLen: number): string {
     end++
   return buf.toString('latin1', offset, end)
 }
+
+// ---------- 类型与缺失值 ----------
 
 /**
  * 判断旧版数值是否为 Stata 缺失值
@@ -301,7 +305,7 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   // 排序列表
   off += (nvar + 1) * 2
 
-  // 显示格式列表：114 开始格式字段扩展到 49 字节。
+  // 显示格式列表：114 开始格式字段扩展到 49 字节
   const fmtLen = release === 113 ? 12 : 49
   off += nvar * fmtLen
 
@@ -319,8 +323,8 @@ function computeLegacyLayout(buf: Buffer): LegacyLayout {
   }
   off += nvar * 81
 
-  // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止。
-  // tag=1 为 characteristics；其他 tag 或越界长度说明元数据偏移已经不可信。
+  // 扩展字段：由 tag、长度和 payload 组成，以 tag=0 且 len=0 终止
+  // tag=1 为 characteristics；其他 tag 或越界长度说明元数据偏移已经不可信
   while (off + 5 <= buf.length) {
     const tag = buf[off]
     const len = readInt32(buf, off + 1, byteOrder)

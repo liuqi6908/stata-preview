@@ -1,0 +1,150 @@
+/* 侧边栏 */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--vscode-sideBar-background);
+
+  & #sidebar-header {
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--vscode-panel-border);
+
+    & h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    & #sidebar-position {
+      flex-shrink: 0;
+
+      & .sidebar-position-icon {
+        align-items: center;
+        justify-content: center;
+      }
+
+      & .sidebar-position-bottom {
+        display: flex;
+      }
+
+      & .sidebar-position-right {
+        display: none;
+      }
+    }
+  }
+
+  & #sidebar-search {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+
+    & #variable-search {
+      width: 100%;
+    }
+  }
+
+  & #sidebar-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+
+    & #value-label-mode-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      user-select: none;
+      color: var(--vscode-foreground);
+
+      & .sidebar-option-label {
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      & .segmented-option {
+        flex: 1;
+      }
+    }
+
+    & #highlight-missing-wrap {
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      color: var(--vscode-foreground);
+    }
+  }
+
+  & #variable-batch-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+
+    & button {
+      flex: 1;
+    }
+  }
+
+  & #variable-list {
+    flex: 1;
+    padding: 6px 4px;
+    overflow-y: auto;
+
+    & .variable-spacer {
+      flex: none;
+    }
+
+    & .variable-empty {
+      padding: 10px 8px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    & .variable-item {
+      padding: 4px 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      border-radius: 4px;
+
+      & .variable-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 0;
+
+        & .variable-name {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          cursor: pointer;
+
+          &:hover {
+            color: var(--vscode-textLink-foreground);
+          }
+        }
+      }
+
+      & > button {
+        display: none;
+      }
+
+      &:hover {
+        background: var(--vscode-list-hoverBackground);
+
+        & > button {
+          display: block;
+        }
+      }
+    }
+  }
+}

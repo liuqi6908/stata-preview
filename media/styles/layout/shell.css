@@ -1,0 +1,68 @@
+/* 布局 */
+#layout-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+
+  &.sidebar-bottom {
+    flex-direction: column;
+
+    & #resize-handle {
+      height: 4px;
+      cursor: ns-resize;
+    }
+
+    & #sidebar {
+      width: 100%;
+      height: var(--sidebar-height);
+      min-height: 120px;
+
+      & #sidebar-position {
+        & .sidebar-position-bottom {
+          display: none;
+        }
+
+        & .sidebar-position-right {
+          display: flex;
+        }
+      }
+    }
+  }
+
+  &:not(.sidebar-bottom) {
+    & #resize-handle {
+      width: 4px;
+      cursor: ew-resize;
+    }
+
+    & #sidebar {
+      width: var(--sidebar-width);
+      height: 100%;
+      min-width: 160px;
+    }
+  }
+
+  &.sidebar-hidden {
+    & #sidebar,
+    & #resize-handle {
+      display: none;
+    }
+  }
+
+  &.is-resizing {
+    user-select: none;
+
+    &.sidebar-bottom {
+      cursor: ns-resize;
+    }
+
+    &:not(.sidebar-bottom) {
+      cursor: ew-resize;
+    }
+
+    & * {
+      pointer-events: none;
+    }
+  }
+}

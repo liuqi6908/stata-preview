@@ -21,9 +21,10 @@ import { l10n } from 'vscode'
 import { isLegacyDtaFormat, parseColumnarLegacy, parseColumnarLegacyAsync } from './parserLegacy'
 import { tabulateColumnar } from './tabulator'
 
+// ---------- 类型 ----------
+
 /**
- * Stata 117/118/119 文件头部格式规格。
- * 控制变量名、变量标签和值标签名称等字段的长度与编码方式。
+ * Stata 117/118/119 文件头部格式规格，控制变量名、变量标签和值标签名称等字段的长度与编码方式
  */
 interface FormatSpec {
   /** Stata release 标记 */
@@ -45,6 +46,18 @@ interface FormatSpec {
   /** 字符串编码 */
   encoding: 'latin1' | 'utf8'
 }
+
+/** 值标签表，key 为数值，value 为展示标签 */
+interface ValueLabelTable {
+  [value: number]: string
+}
+
+/** 值标签表集合，可按标签名或变量名索引 */
+interface ValueLabelTables {
+  [name: string]: ValueLabelTable
+}
+
+// ---------- 二进制读取 ----------
 
 function readUInt16(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
   return byteOrder === 'LSF' ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset)
@@ -73,6 +86,8 @@ function readFloat(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
 function readDouble(buf: Buffer, offset: number, byteOrder: ByteOrder): number {
   return byteOrder === 'LSF' ? buf.readDoubleLE(offset) : buf.readDoubleBE(offset)
 }
+
+// ---------- 格式规格 ----------
 
 /** Stata 117 文件规格 */
 const FMT_117: FormatSpec = {
@@ -113,7 +128,7 @@ const FMT_119: FormatSpec = {
   encoding: 'utf8',
 }
 
-/** 已知的二进制 .dta release 显示名，其中 113/114/115 由旧版解析器支持。 */
+/** 已知的二进制 .dta release 显示名，其中 113/114/115 由旧版解析器支持 */
 const BINARY_DTA_RELEASE_LABELS = new Map<number, string>([
   [102, 'Stata 1 (format 102)'],
   [103, 'Stata 2/3 (format 103)'],
@@ -128,8 +143,10 @@ const BINARY_DTA_RELEASE_LABELS = new Map<number, string>([
   [115, 'Stata 12 (format 115)'],
 ])
 
+// ---------- 类型与缺失值 ----------
+
 /**
- * 解码 Stata 117/118/119 类型代码。
+ * 解码 Stata 117/118/119 类型代码
  *
  * 类型代码（uint16，按文件字节序读取）：
  *   1..2045   -> strN（固定宽度字符串，N 字节）
@@ -159,10 +176,9 @@ function decodeTypeCode(code: number): { type: string, size: number } | null {
 }
 
 /**
- * 判断数值是否为 Stata 缺失值。
+ * 判断数值是否为 Stata 缺失值
  *
- * Stata 的 .= 和 .a..z 均高于各类型的普通取值阈值。
- * 参考：Stata "[U] 12.2.1 Missing values"。
+ * Stata 的 .= 和 .a..z 均高于各类型的普通取值阈值，参考：Stata "[U] 12.2.1 Missing values"
  */
 function isMissingNumeric(v: number, t: string): boolean {
   if (v === null || v === undefined || Number.isNaN(v))
@@ -208,20 +224,22 @@ function readCString(buf: Buffer, offset: number, maxLen: number, encoding: 'lat
   return buf.toString(encoding, offset, end)
 }
 
+// ---------- strL ----------
+
 /** strL 长字符串查找表：数据行中的 (v, o) 引用 -> 实际字符串 */
 type StrLMap = Map<string, string>
 
 /**
- * 根据 GSO 记录和数据行引用中的 (v, o) 生成稳定查找键。
- * 117/118/119 在数据行中拆分 8 字节引用的方式不同，使用语义键可以避免
- * 将不同 release 或字节序下的物理布局泄漏到查找逻辑里。
+ * 根据 GSO 记录和数据行引用中的 (v, o) 生成稳定查找键
+ *
+ * 117/118/119 在数据行中拆分 8 字节引用的方式不同，使用语义键可以避免将不同 release 或字节序下的物理布局泄漏到查找逻辑里
  */
 function strLKey(v: number, o: bigint | number): string {
   return `${v}:${typeof o === 'bigint' ? o.toString() : o}`
 }
 
 /**
- * 读取 Stata 在 strL 行引用中使用的 2/3/4/5/6 字节无符号整数。
+ * 读取 Stata 在 strL 行引用中使用的 2/3/4/5/6 字节无符号整数
  */
 function readPackedUInt(buffer: Buffer, offset: number, byteLength: number, byteOrder: ByteOrder): bigint {
   let out = 0n
@@ -239,7 +257,7 @@ function readPackedUInt(buffer: Buffer, offset: number, byteLength: number, byte
 }
 
 /**
- * 读取数据行里的 strL 引用。
+ * 读取数据行里的 strL 引用
  */
 function readStrLRef(buffer: Buffer, offset: number, fmt: FormatSpec, strls: StrLMap, byteOrder: ByteOrder): string {
   if (offset + 8 > buffer.length)
@@ -264,11 +282,9 @@ function readStrLRef(buffer: Buffer, offset: number, fmt: FormatSpec, strls: Str
 }
 
 /**
- * 解析 <strls> 段中的 GSO 记录。
+ * 解析 `<strls>` 段中的 GSO 记录
  *
- * Stata 117/118/119 的数据区只保存 strL 引用，真正内容存放在 <strls> 段。
- * type=130 是文本，type=129 是二进制；二进制用 latin1 做字节保真映射，
- * 以便统计时仍能按完整字节序列计数。
+ * Stata 117/118/119 的数据区只保存 strL 引用，真正内容存放在 `<strls>` 段。type=130 是文本，type=129 是二进制；二进制用 latin1 做字节保真映射，以便统计时仍能按完整字节序列计数
  */
 function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number, byteOrder: ByteOrder): StrLMap {
   const out: StrLMap = new Map()
@@ -321,6 +337,8 @@ function readStrLs(buffer: Buffer, fmt: FormatSpec, tagStart: number, byteOrder:
 
   return out
 }
+
+// ---------- 列存储 ----------
 
 /**
  * 初始化列存储、缺失值掩码与行内列偏移
@@ -424,6 +442,8 @@ function readColumnarRow(
   }
 }
 
+// ---------- XML 标签 ----------
+
 /**
  * 查找开始标签偏移
  */
@@ -449,7 +469,7 @@ function findTagClose(buf: Buffer, tag: string, fromOffset: number = 0): number 
 }
 
 /**
- * 读取 <map> 中的 14 个 uint64 偏移量。
+ * 读取 `<map>` 中的 14 个 uint64 偏移量
  */
 function readMapOffsets(buffer: Buffer, byteOrder: ByteOrder): number[] | null {
   const mapOpen = findTagOpen(buffer, 'map')
@@ -464,8 +484,9 @@ function readMapOffsets(buffer: Buffer, byteOrder: ByteOrder): number[] | null {
 }
 
 /**
- * 判断指定偏移处是否正好是目标开始标签。
- * 用于校验 <map> 中记录的偏移是否可信，避免把偏移 0 或错误位置处的头部内容当作变量标签等数据段读取。
+ * 判断指定偏移处是否正好是目标开始标签
+ *
+ * 用于校验 `<map>` 中记录的偏移是否可信，避免把偏移 0 或错误位置处的头部内容当作变量标签等数据段读取
  */
 function isTagStart(buffer: Buffer, tag: string, offset: number): boolean {
   if (!Number.isFinite(offset) || offset < 0)
@@ -477,7 +498,7 @@ function isTagStart(buffer: Buffer, tag: string, offset: number): boolean {
 }
 
 /**
- * 根据 map 定位标签；若某些 117 文件的 map 槽位为 0 或偏移无效，则回退到实际标签搜索。
+ * 根据 map 定位标签；若某些 117 文件的 map 槽位为 0 或偏移无效，则回退到实际标签搜索
  */
 function resolveMappedTagStart(buffer: Buffer, mapOffsets: number[] | null, mapIdx: number, tag: string): number {
   const mapped = mapOffsets?.[mapIdx]
@@ -485,7 +506,7 @@ function resolveMappedTagStart(buffer: Buffer, mapOffsets: number[] | null, mapI
     if (isTagStart(buffer, tag, mapped))
       return mapped
 
-    // 容忍少数写入器把内容起点而不是开标签起点写入 map。
+    // 容忍少数写入器把内容起点而不是开标签起点写入 map
     const contentMappedStart = mapped - (tag.length + 2)
     if (isTagStart(buffer, tag, contentMappedStart))
       return contentMappedStart
@@ -494,6 +515,9 @@ function resolveMappedTagStart(buffer: Buffer, mapOffsets: number[] | null, mapI
   return findTagStart(buffer, tag)
 }
 
+/**
+ * 根据 `<map>` 偏移或标签搜索读取指定标签的内容范围
+ */
 function sliceMappedTagContent(buffer: Buffer, mapOffsets: number[] | null, mapIdx: number, tag: string): { start: number, end: number } {
   const tagStart = resolveMappedTagStart(buffer, mapOffsets, mapIdx, tag)
   if (tagStart === -1)
@@ -506,6 +530,9 @@ function sliceMappedTagContent(buffer: Buffer, mapOffsets: number[] | null, mapI
   return { start, end }
 }
 
+/**
+ * 查找必需标签的内容起始偏移，并确认后续字节长度足够读取
+ */
 function requireTagOpen(buffer: Buffer, tag: string, bytesNeeded: number): number {
   const open = findTagOpen(buffer, tag)
   if (open === -1)
@@ -515,11 +542,17 @@ function requireTagOpen(buffer: Buffer, tag: string, bytesNeeded: number): numbe
   return open
 }
 
+/**
+ * 从文件头部读取 Stata 字节序标记
+ */
 function readByteOrder(head: string): ByteOrder {
   const byteorderMatch = head.match(/<byteorder>(LSF|MSF)<\/byteorder>/)
   return byteorderMatch?.[1] === 'MSF' ? 'MSF' : 'LSF'
 }
 
+/**
+ * 按 release 规格读取观测数量
+ */
 function readObservationCount(buffer: Buffer, fmt: FormatSpec, nOpen: number, byteOrder: ByteOrder): number {
   if (fmt.nobsBytes === 4)
     return readUInt32(buffer, nOpen, byteOrder)
@@ -530,10 +563,16 @@ function readObservationCount(buffer: Buffer, fmt: FormatSpec, nOpen: number, by
   return Number(big)
 }
 
+/**
+ * 按 release 规格读取变量数量
+ */
 function readVariableCount(buffer: Buffer, fmt: FormatSpec, kOpen: number, byteOrder: ByteOrder): number {
   return fmt.kBytes === 2 ? readUInt16(buffer, kOpen, byteOrder) : readUInt32(buffer, kOpen, byteOrder)
 }
 
+/**
+ * 将现代 DTA release 映射到对应格式规格
+ */
 function formatForModernRelease(releaseNum: number): FormatSpec | null {
   if (releaseNum === 117)
     return FMT_117
@@ -544,8 +583,151 @@ function formatForModernRelease(releaseNum: number): FormatSpec | null {
   return null
 }
 
+// ---------- 值标签 ----------
+
 /**
- * 探测以单字节 release 开头的旧版二进制 .dta 文件。
+ * 读取现代 DTA 文件中的变量值标签映射
+ */
+function readModernValueLabels(
+  buffer: Buffer,
+  fmt: FormatSpec,
+  K: number,
+  headers: string[],
+  mapOffsets: number[],
+  byteOrder: ByteOrder,
+): ValueLabelTables {
+  const rawLabels = readRawValueLabelTables(buffer, fmt, mapOffsets, byteOrder)
+  return bindValueLabelsToVariables(buffer, fmt, K, headers, rawLabels, mapOffsets)
+}
+
+/**
+ * 读取 `<value_labels>` 中按标签名存放的原始标签表
+ */
+function readRawValueLabelTables(
+  buffer: Buffer,
+  fmt: FormatSpec,
+  mapOffsets: number[],
+  byteOrder: ByteOrder,
+): ValueLabelTables {
+  const rawLabels: ValueLabelTables = {}
+  try {
+    const valueLabelSection = sliceMappedTagContent(buffer, mapOffsets, 11, 'value_labels')
+    let cursor = valueLabelSection.start
+    const labelOpen = Buffer.from('<lbl>', 'latin1')
+    const labelClose = Buffer.from('</lbl>', 'latin1')
+
+    while (cursor < valueLabelSection.end) {
+      const openStart = buffer.indexOf(labelOpen, cursor)
+      if (openStart === -1 || openStart >= valueLabelSection.end)
+        break
+      const closeStart = buffer.indexOf(labelClose, openStart + labelOpen.length)
+      if (closeStart === -1 || closeStart > valueLabelSection.end)
+        break
+
+      const blockStart = openStart + labelOpen.length
+      const blockEnd = closeStart
+      cursor = closeStart + labelClose.length
+
+      const table = readValueLabelTable(buffer, fmt, blockStart, blockEnd, byteOrder)
+      if (table)
+        rawLabels[table.name] = table.values
+    }
+  }
+  catch { /* 值标签缺失或格式异常时跳过 */ }
+
+  return rawLabels
+}
+
+/**
+ * 读取单个 `<lbl>` 块中的标签名和值标签表
+ */
+function readValueLabelTable(
+  buffer: Buffer,
+  fmt: FormatSpec,
+  blockStart: number,
+  blockEnd: number,
+  byteOrder: ByteOrder,
+): { name: string, values: ValueLabelTable } | null {
+  let offset = blockStart
+  if (offset + 4 > blockEnd)
+    return null
+  offset += 4
+
+  if (offset + fmt.valueLabelNameLen + 3 > blockEnd)
+    return null
+  const name = readCString(buffer, offset, fmt.valueLabelNameLen, fmt.encoding)
+  offset += fmt.valueLabelNameLen + 3
+
+  if (offset + 8 > blockEnd)
+    return null
+  const count = readInt32(buffer, offset, byteOrder)
+  offset += 4
+  const textLength = readInt32(buffer, offset, byteOrder)
+  offset += 4
+
+  if (count < 0 || count > 1_000_000)
+    return null
+  if (offset + 8 * count + textLength > blockEnd)
+    return null
+
+  const textOffsets: number[] = []
+  for (let index = 0; index < count; index++) {
+    textOffsets.push(readInt32(buffer, offset, byteOrder))
+    offset += 4
+  }
+  const values: number[] = []
+  for (let index = 0; index < count; index++) {
+    values.push(readInt32(buffer, offset, byteOrder))
+    offset += 4
+  }
+
+  const textStart = offset
+  const textEnd = textStart + textLength
+  const table: ValueLabelTable = {}
+  for (let index = 0; index < count; index++) {
+    const start = textStart + textOffsets[index]
+    if (start < textStart || start >= textEnd)
+      continue
+    table[values[index]] = readCString(buffer, start, textEnd - start, fmt.encoding)
+  }
+
+  return name ? { name, values: table } : null
+}
+
+/**
+ * 根据 `<value_label_names>` 将原始标签表绑定到变量名
+ */
+function bindValueLabelsToVariables(
+  buffer: Buffer,
+  fmt: FormatSpec,
+  K: number,
+  headers: string[],
+  rawLabels: ValueLabelTables,
+  mapOffsets: number[],
+): ValueLabelTables {
+  const valueLabels: ValueLabelTables = {}
+  try {
+    const valueLabelNames = sliceMappedTagContent(buffer, mapOffsets, 6, 'value_label_names')
+    for (let index = 0; index < K; index++) {
+      const labelName = readCString(
+        buffer,
+        valueLabelNames.start + index * fmt.valueLabelNameLen,
+        fmt.valueLabelNameLen,
+        fmt.encoding,
+      )
+      if (labelName && rawLabels[labelName])
+        valueLabels[headers[index]] = rawLabels[labelName]
+    }
+  }
+  catch { /* 跳过值标签绑定 */ }
+
+  return valueLabels
+}
+
+// ---------- 文件识别 ----------
+
+/**
+ * 探测以单字节 release 开头的旧版二进制 .dta 文件
  */
 function detectBinaryDtaRelease(buffer: Buffer): number | null {
   if (buffer.length < 1)
@@ -555,14 +737,14 @@ function detectBinaryDtaRelease(buffer: Buffer): number | null {
 }
 
 /**
- * 将 .dta release 格式化为错误提示中的文件描述。
+ * 将 .dta release 格式化为错误提示中的文件描述
  */
 function formatDtaReleaseLabel(release: number): string {
   return BINARY_DTA_RELEASE_LABELS.get(release) ?? `Stata (format ${release})`
 }
 
 /**
- * 生成已识别但尚不支持的 Stata 文件错误。
+ * 生成已识别但尚不支持的 Stata 文件错误
  */
 function unsupportedDtaFileError(fileDescription: string): Error {
   return new Error(l10n.t(
@@ -572,7 +754,7 @@ function unsupportedDtaFileError(fileDescription: string): Error {
 }
 
 /**
- * 将列式数据转换为旧预览接口使用的少量行式数据。
+ * 将列式数据转换为旧预览接口使用的少量行式数据
  */
 function columnarToPreviewData(columnar: DtaColumnar, limitRows = 1000): DtaData {
   const meta = columnar.meta
@@ -595,6 +777,9 @@ function columnarToPreviewData(columnar: DtaColumnar, limitRows = 1000): DtaData
   }
 }
 
+/**
+ * 校验现代 DTA 文件中的变量数和观测数是否可信
+ */
 function assertModernDimensions(fmt: FormatSpec, K: number, N: number): void {
   if (!Number.isInteger(K) || K < 0 || K > fmt.maxVariables)
     throw new Error(l10n.t('Implausible variable count: {0}', K))
@@ -602,6 +787,9 @@ function assertModernDimensions(fmt: FormatSpec, K: number, N: number): void {
     throw new Error(l10n.t('Implausible observation count: {0}', N))
 }
 
+/**
+ * 校验数据区偏移和数据行总字节数是否落在文件范围内
+ */
 function assertDataSectionFits(buffer: Buffer, dataStart: number, rowSize: number, N: number): void {
   if (dataStart < 0 || dataStart > buffer.length)
     throw new Error(l10n.t('DTA metadata is inconsistent: invalid data section offset.'))
@@ -612,9 +800,11 @@ function assertDataSectionFits(buffer: Buffer, dataStart: number, rowSize: numbe
     throw new Error(l10n.t('DTA metadata is inconsistent: data section is shorter than expected.'))
 }
 
+// ---------- 公共入口 ----------
+
 /**
- * Stata 117/118/119 数据解析器。
- * 提供预览解析、列式解析和单变量汇总功能。
+ * Stata 117/118/119 数据解析器
+ * 提供预览解析、列式解析和单变量统计功能
  */
 export class DtaParser {
   /**
@@ -622,7 +812,7 @@ export class DtaParser {
    */
   static parse(buffer: Buffer): DtaData {
     // --- 1. 检测格式版本 ---
-    // 文件开头是 ASCII 头部。
+    // 文件开头是 ASCII 头部
     const head = buffer.toString('latin1', 0, 200)
     if (!head.includes('<stata_dta>')) {
       if (isLegacyDtaFormat(buffer))
@@ -643,42 +833,42 @@ export class DtaParser {
 
     const byteOrder = readByteOrder(head)
 
-    // --- 2. 解析 <K>（变量数量） ---
+    // --- 2. 解析 `<K>`（变量数量） ---
     const kOpen = requireTagOpen(buffer, 'K', fmt.kBytes)
     const K = readVariableCount(buffer, fmt, kOpen, byteOrder)
 
-    // --- 3. 解析 <N>（观测数）：117 为 4 字节，118/119 为 8 字节 ---
+    // --- 3. 解析 `<N>`（观测数）：117 为 4 字节，118/119 为 8 字节 ---
     const nOpen = requireTagOpen(buffer, 'N', fmt.nobsBytes)
     const N = readObservationCount(buffer, fmt, nOpen, byteOrder)
     assertModernDimensions(fmt, K, N)
 
-    // --- 4. 解析 <map>：14 个 uint64 偏移量 ---
+    // --- 4. 解析 `<map>`：14 个 uint64 偏移量 ---
     // map 中的顺序（按 Stata 文档）：
-    //  0: <stata_dta>
-    //  1: <map>
-    //  2: <variable_types>
-    //  3: <varnames>
-    //  4: <sortlist>
-    //  5: <formats>
-    //  6: <value_label_names>
-    //  7: <variable_labels>
-    //  8: <characteristics>
-    //  9: <data>
-    // 10: <strls>
-    // 11: <value_labels>
-    // 12: </stata_dta>  结束标记
+    //  0: `<stata_dta>`
+    //  1: `<map>`
+    //  2: `<variable_types>`
+    //  3: `<varnames>`
+    //  4: `<sortlist>`
+    //  5: `<formats>`
+    //  6: `<value_label_names>`
+    //  7: `<variable_labels>`
+    //  8: `<characteristics>`
+    //  9: `<data>`
+    // 10: `<strls>`
+    // 11: `<value_labels>`
+    // 12: `</stata_dta>`  结束标记
     // 13: 文件结束
     const mapOffsets = readMapOffsets(buffer, byteOrder)
     if (!mapOffsets)
       throw new Error(l10n.t('Missing <{0}> tag.', 'map'))
 
-    // 辅助：根据 map 提供的偏移读取 <tag>...</tag> 之间的内容。
-    // 标准 map 指向开标签的 '<'；少数非标准 117 文件会回退到实际标签搜索。
+    // 辅助：根据 map 提供的偏移读取 `<tag>` 与 `</tag>` 之间的内容
+    // 标准 map 指向开标签的 '<'；少数非标准 117 文件会回退到实际标签搜索
     const sliceTagContent = (mapIdx: number, tag: string): { start: number, end: number } => {
       return sliceMappedTagContent(buffer, mapOffsets, mapIdx, tag)
     }
 
-    // --- 5. <variable_types>: K * uint16 LE ---
+    // --- 5. `<variable_types>`: K * uint16 LE ---
     const vt = sliceTagContent(2, 'variable_types')
     const types: string[] = []
     const typeSizes: number[] = []
@@ -696,120 +886,33 @@ export class DtaParser {
       }
     }
 
-    // --- 6. <varnames>：K * varnameLen，NUL 终止，支持编码 ---
+    // --- 6. `<varnames>`：K * varnameLen，NUL 终止，支持编码 ---
     const vn = sliceTagContent(3, 'varnames')
     const headers: string[] = []
     for (let j = 0; j < K; j++) {
       headers.push(readCString(buffer, vn.start + j * fmt.varnameLen, fmt.varnameLen, fmt.encoding))
     }
 
-    // --- 7. <variable_labels>: K * varlabelLen ---
+    // --- 7. `<variable_labels>`: K * varlabelLen ---
     const vl = sliceTagContent(7, 'variable_labels')
     const labels: string[] = []
     for (let j = 0; j < K; j++) {
       labels.push(readCString(buffer, vl.start + j * fmt.varlabelLen, fmt.varlabelLen, fmt.encoding))
     }
 
-    // --- 8. <value_labels>: 解析零个或多个 <lbl> 块 ---
-    const valueLabels: { [varName: string]: { [value: number]: string } } = {}
-    try {
-      const vlbl = sliceTagContent(11, 'value_labels')
-      let cursor = vlbl.start
-      const lblOpen = Buffer.from('<lbl>', 'latin1')
-      const lblClose = Buffer.from('</lbl>', 'latin1')
-      while (cursor < vlbl.end) {
-        const oStart = buffer.indexOf(lblOpen, cursor)
-        if (oStart === -1 || oStart >= vlbl.end)
-          break
-        const cStart = buffer.indexOf(lblClose, oStart + lblOpen.length)
-        if (cStart === -1 || cStart > vlbl.end)
-          break
-
-        const blockStart = oStart + lblOpen.length
-        const blockEnd = cStart
-        cursor = cStart + lblClose.length
-
-        // 块布局：
-        //  int32  len           （头部、名称和填充之后的表大小）
-        //  char   name[L]       （L = valueLabelNameLen，NUL 终止）
-        //  char   pad[3]        （填充）
-        //  int32  n             （条目数量）
-        //  int32  txtlen        （文本池长度）
-        //  int32  off[n]        （每个条目在文本池中的字节偏移）
-        //  int32  val[n]        （每个条目的值）
-        //  char   txt[txtlen]   （NUL 分隔的标签字符串）
-        let off = blockStart
-        if (off + 4 > blockEnd)
-          continue
-        off += 4 // 跳过 len
-
-        if (off + fmt.valueLabelNameLen + 3 > blockEnd)
-          continue
-        const lblName = readCString(buffer, off, fmt.valueLabelNameLen, fmt.encoding)
-        off += fmt.valueLabelNameLen + 3
-
-        if (off + 8 > blockEnd)
-          continue
-        const n = readInt32(buffer, off, byteOrder)
-        off += 4
-        const txtlen = readInt32(buffer, off, byteOrder)
-        off += 4
-
-        if (n < 0 || n > 1_000_000)
-          continue
-        if (off + 4 * n + 4 * n + txtlen > blockEnd)
-          continue
-
-        const offs: number[] = []
-        for (let k = 0; k < n; k++) {
-          offs.push(readInt32(buffer, off, byteOrder))
-          off += 4
-        }
-        const vals: number[] = []
-        for (let k = 0; k < n; k++) {
-          vals.push(readInt32(buffer, off, byteOrder))
-          off += 4
-        }
-        const txtStart = off
-        const txtEnd = txtStart + txtlen
-
-        const map: { [v: number]: string } = {}
-        for (let k = 0; k < n; k++) {
-          const s = txtStart + offs[k]
-          if (s < txtStart || s >= txtEnd)
-            continue
-          map[vals[k]] = readCString(buffer, s, txtEnd - s, fmt.encoding)
-        }
-        if (lblName)
-          valueLabels[lblName] = map
-      }
-    }
-    catch { /* 值标签缺失或格式异常时跳过 */ }
-
-    // Stata 通过 <value_label_names> 为每个变量关联一个标签名（K 个 varnameLen），
-    // 该标签名对应 valueLabels 中的标签表。将每个变量映射到它的标签表。
-    const variableValueLabels: { [varName: string]: { [v: number]: string } } = {}
-    try {
-      const vln = sliceTagContent(6, 'value_label_names')
-      for (let j = 0; j < K; j++) {
-        const lblName = readCString(buffer, vln.start + j * fmt.valueLabelNameLen, fmt.valueLabelNameLen, fmt.encoding)
-        if (lblName && valueLabels[lblName]) {
-          variableValueLabels[headers[j]] = valueLabels[lblName]
-        }
-      }
-    }
-    catch { /* 跳过值标签绑定 */ }
+    // --- 8. `<value_labels>` 与 `<value_label_names>` ---
+    const variableValueLabels = readModernValueLabels(buffer, fmt, K, headers, mapOffsets, byteOrder)
 
     const strls = readStrLs(buffer, fmt, resolveMappedTagStart(buffer, mapOffsets, 10, 'strls'), byteOrder)
 
-    // --- 9. <data>: 读取行数据 ---
+    // --- 9. `<data>`: 读取行数据 ---
     const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
     if (dataTagStart === -1)
       throw new Error(l10n.t('Missing <{0}> tag.', 'data'))
     const dataContentStart = dataTagStart + '<data>'.length
     const rowSize = typeSizes.reduce((a, b) => a + b, 0)
     assertDataSectionFits(buffer, dataContentStart, rowSize, N)
-    // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理。
+    // 预览解析只读取前 1000 行，完整数据由 parseColumnar 处理
     const limitRows = Math.min(N, 1000)
     const rows: any[][] = []
 
@@ -868,9 +971,9 @@ export class DtaParser {
   }
 
   /**
-   * 使用列式数据为单个变量计算汇总结果。
+   * 使用列式数据为单个变量计算汇总结果
    *
-   * 统计实现位于 tabulator.ts；这里保留旧入口，降低外部调用迁移成本。
+   * 统计实现位于 tabulator.ts；这里保留旧入口，降低外部调用迁移成本
    */
   static tabulate(columnar: DtaColumnar, varName: string, indices?: Uint32Array): TabulateResult {
     return tabulateColumnar(columnar, varName, indices)
@@ -880,7 +983,7 @@ export class DtaParser {
    * 异步解析完整文件为列式数据
    */
   static async parseColumnarAsync(buffer: Buffer, opts: ParseColumnarAsyncOptions = {}): Promise<DtaColumnar> {
-    // 对于 Stata 13 之前的二进制格式，派发给旧版解析器处理。
+    // 对于 Stata 13 之前的二进制格式，派发给旧版解析器处理
     if (isLegacyDtaFormat(buffer)) {
       return parseColumnarLegacyAsync(buffer, opts)
     }
@@ -946,7 +1049,7 @@ export class DtaParser {
     const progressStep = opts.progressStep ?? 10000
     const onProgress = opts.onProgress
 
-    // 执行单次线性扫描。
+    // 执行单次线性扫描
     for (let i = 0; i < N; i++) {
       const rowOff = dataStart + i * rowSize
       if (rowOff + rowSize > buffer.length)
@@ -978,7 +1081,7 @@ export class DtaParser {
   }
 }
 
-// ---------- 内部辅助函数 ----------
+// ---------- 布局读取 ----------
 
 /** Stata 117/118/119 文件布局 */
 interface Layout {
@@ -1008,7 +1111,7 @@ interface Layout {
  * 读取变量标签列表
  */
 function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number, byteOrder: ByteOrder): string[] {
-  // 使用 map 重新查找标签偏移（开销小；parseColumnar 仅调用一次）。
+  // 使用 map 重新查找标签偏移（开销小；parseColumnar 仅调用一次）
   let vl: { start: number, end: number }
   try {
     vl = sliceMappedTagContent(buffer, readMapOffsets(buffer, byteOrder), 7, 'variable_labels')
@@ -1030,8 +1133,8 @@ function readVarLabels(buffer: Buffer, fmt: FormatSpec, K: number, byteOrder: By
 function computeLayout(buffer: Buffer): Layout {
   const head = buffer.toString('latin1', 0, 200)
   if (!head.includes('<stata_dta>')) {
-    // 旧版二进制格式（Stata 13 之前）以单字节 ds_format 起始。
-    // 102/103/104 等更早格式不进入解析器，但需要提示准确的 release。
+    // 旧版二进制格式（Stata 13 之前）以单字节 ds_format 起始
+    // 102/103/104 等更早格式不进入解析器，但需要提示准确的 release
     const binaryRelease = detectBinaryDtaRelease(buffer)
     if (binaryRelease !== null)
       throw unsupportedDtaFileError(formatDtaReleaseLabel(binaryRelease))
@@ -1076,74 +1179,7 @@ function computeLayout(buffer: Buffer): Layout {
     headers.push(readCString(buffer, vn.start + j * fmt.varnameLen, fmt.varnameLen, fmt.encoding))
   }
 
-  // 值标签：重建变量到标签映射，逻辑与 parse() 一致
-  const valueLabels: { [name: string]: { [v: number]: string } } = {}
-  const rawLabels: { [name: string]: { [v: number]: string } } = {}
-  try {
-    const vlbl = sliceTagContent(11, 'value_labels')
-    let cursor = vlbl.start
-    const lblOpen = Buffer.from('<lbl>', 'latin1')
-    const lblClose = Buffer.from('</lbl>', 'latin1')
-    while (cursor < vlbl.end) {
-      const oStart = buffer.indexOf(lblOpen, cursor)
-      if (oStart === -1 || oStart >= vlbl.end)
-        break
-      const cStart = buffer.indexOf(lblClose, oStart + lblOpen.length)
-      if (cStart === -1 || cStart > vlbl.end)
-        break
-      const blockStart = oStart + lblOpen.length
-      const blockEnd = cStart
-      cursor = cStart + lblClose.length
-
-      let off = blockStart
-      if (off + 4 > blockEnd)
-        continue
-      off += 4
-      if (off + fmt.valueLabelNameLen + 3 > blockEnd)
-        continue
-      const lblName = readCString(buffer, off, fmt.valueLabelNameLen, fmt.encoding)
-      off += fmt.valueLabelNameLen + 3
-      if (off + 8 > blockEnd)
-        continue
-      const n = readInt32(buffer, off, byteOrder)
-      off += 4
-      const txtlen = readInt32(buffer, off, byteOrder)
-      off += 4
-      if (n < 0 || n > 1_000_000)
-        continue
-      if (off + 8 * n + txtlen > blockEnd)
-        continue
-      const offs: number[] = []
-      for (let k = 0; k < n; k++) {
-        offs.push(readInt32(buffer, off, byteOrder))
-        off += 4
-      }
-      const vals: number[] = []
-      for (let k = 0; k < n; k++) {
-        vals.push(readInt32(buffer, off, byteOrder))
-        off += 4
-      }
-      const txtStart = off
-      const txtEnd = txtStart + txtlen
-      const map: { [v: number]: string } = {}
-      for (let k = 0; k < n; k++) {
-        const s = txtStart + offs[k]
-        if (s < txtStart || s >= txtEnd)
-          continue
-        map[vals[k]] = readCString(buffer, s, txtEnd - s, fmt.encoding)
-      }
-      if (lblName)
-        rawLabels[lblName] = map
-    }
-
-    const vln = sliceTagContent(6, 'value_label_names')
-    for (let j = 0; j < K; j++) {
-      const name = readCString(buffer, vln.start + j * fmt.valueLabelNameLen, fmt.valueLabelNameLen, fmt.encoding)
-      if (name && rawLabels[name])
-        valueLabels[headers[j]] = rawLabels[name]
-    }
-  }
-  catch { /* 跳过值标签 */ }
+  const valueLabels = readModernValueLabels(buffer, fmt, K, headers, mapOffsets, byteOrder)
 
   const dataTagStart = resolveMappedTagStart(buffer, mapOffsets, 9, 'data')
   if (dataTagStart === -1)

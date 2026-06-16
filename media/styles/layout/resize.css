@@ -1,0 +1,9 @@
+/* 调整手柄 */
+#resize-handle {
+  flex-shrink: 0;
+  background: var(--vscode-panel-border);
+
+  &:hover {
+    background: var(--vscode-sash-hoverBorder);
+  }
+}

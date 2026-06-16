@@ -10,16 +10,20 @@ import type { DtaView } from './dtaView'
 import { Buffer } from 'node:buffer'
 import { l10n } from 'vscode'
 
+// ---------- 常量 ----------
+
 /** Excel 单工作表最大行数 */
 export const EXCEL_MAX_ROWS = 1048576
 /** Excel 单工作表最大列数 */
 export const EXCEL_MAX_COLUMNS = 16384
 
-/** 分批从 DtaView 读取数据，避免一次性构造过大的行数组。 */
+/** 分批从 DtaView 读取数据，避免一次性构造过大的行数组 */
 const EXPORT_PAGE_SIZE = 10000
 
-/** 计算大块 CRC 时每处理多少字节让出一次事件循环。 */
+/** 计算大块 CRC 时每处理多少字节让出一次事件循环 */
 const CRC_YIELD_BYTES = 1024 * 1024
+
+// ---------- 类型 ----------
 
 /** ZIP 文件条目 */
 interface ZipEntry {
@@ -29,62 +33,66 @@ interface ZipEntry {
   data: Buffer
 }
 
-/** ZIP 构建中的临时状态。 */
+/** ZIP 构建中的临时状态 */
 interface ZipBuildState {
-  /** 本地文件头和内容。 */
+  /** 本地文件头和内容 */
   localParts: Buffer[]
-  /** 中央目录条目。 */
+  /** 中央目录条目 */
   centralParts: Buffer[]
-  /** 当前 ZIP 写入偏移。 */
+  /** 当前 ZIP 写入偏移 */
   offset: number
 }
 
-/** 导出进度信息。 */
+/** 导出进度信息 */
 export interface TableExportProgress {
-  /** 已写入的数据行数，不包含表头。 */
+  /** 已写入的数据行数，不包含表头 */
   processedRows: number
-  /** 需要导出的总数据行数，不包含表头。 */
+  /** 需要导出的总数据行数，不包含表头 */
   totalRows: number
-  /** 当前导出阶段。 */
+  /** 当前导出阶段 */
   phase: 'rows' | 'packaging'
 }
 
-/** 导出配置。 */
-export interface TableExportOptions {
-  /** 单次从视图读取的行数。 */
+/** 导出配置 */
+interface TableExportOptions {
+  /** 单次从视图读取的行数 */
   pageSize?: number
-  /** 进度回调。 */
+  /** 进度回调 */
   onProgress?: (progress: TableExportProgress) => void
-  /** 返回 true 时取消导出。 */
+  /** 返回 true 时取消导出 */
   shouldCancel?: () => boolean
 }
 
-/** 通用行导出数据源。 */
-export interface RowExportSource {
-  /** 导出表头。 */
+/** 通用行导出数据源 */
+interface RowExportSource {
+  /** 导出表头 */
   columns: string[]
-  /** 导出数据行数，不包含表头。 */
+  /** 导出数据行数，不包含表头 */
   totalRows: number
-  /** 按偏移和数量读取导出行。 */
+  /** 按偏移和数量读取导出行 */
   getRows: (offset: number, limit: number) => unknown[][] | Promise<unknown[][]>
 }
 
-/** 导出已被用户取消。 */
+// ---------- 取消错误 ----------
+
+/** 导出已被用户取消 */
 export class DtaExportCancelledError extends Error {
   constructor() {
     super('导出已取消。')
   }
 }
 
-/** 判断错误是否来自导出取消。 */
+/** 判断错误是否来自导出取消 */
 export function isDtaExportCancelledError(error: unknown): error is DtaExportCancelledError {
   return error instanceof DtaExportCancelledError
 }
 
+// ---------- CSV 导出 ----------
+
 /**
- * 异步将当前视图导出为 CSV。
+ * 异步将当前视图导出为 CSV
  *
- * CSV 使用 UTF-8 BOM，方便 Excel/WPS 直接识别中文编码。
+ * CSV 使用 UTF-8 BOM，方便 Excel/WPS 直接识别中文编码
  */
 export async function exportViewToCsvAsync(
   view: DtaView,
@@ -95,7 +103,7 @@ export async function exportViewToCsvAsync(
 }
 
 /**
- * 异步将通用行源导出为 CSV。
+ * 异步将通用行源导出为 CSV
  */
 export async function exportRowsToCsvAsync(
   source: RowExportSource,
@@ -124,10 +132,12 @@ export async function exportRowsToCsvAsync(
   return Buffer.from(chunks.join(''), 'utf8')
 }
 
+// ---------- XLSX 导出 ----------
+
 /**
- * 异步将当前视图导出为 XLSX。
+ * 异步将当前视图导出为 XLSX
  *
- * 这里手动生成最小 OpenXML 工作簿，避免为导出功能引入额外依赖。
+ * 这里手动生成最小 OpenXML 工作簿，避免为导出功能引入额外依赖
  */
 export async function exportViewToXlsxAsync(
   view: DtaView,
@@ -138,7 +148,7 @@ export async function exportViewToXlsxAsync(
 }
 
 /**
- * 异步将通用行源导出为 XLSX。
+ * 异步将通用行源导出为 XLSX
  */
 export async function exportRowsToXlsxAsync(
   source: RowExportSource,
@@ -173,8 +183,10 @@ export async function exportRowsToXlsxAsync(
   return createZipAsync(createXlsxWorkbookEntries(sheetParts.join('')), options)
 }
 
+// ---------- 行源 ----------
+
 /**
- * 将 DtaView 包装为通用行导出源。
+ * 将 DtaView 包装为通用行导出源
  */
 function createViewExportSource(view: DtaView, columns: string[]): RowExportSource {
   return {
@@ -184,8 +196,10 @@ function createViewExportSource(view: DtaView, columns: string[]): RowExportSour
   }
 }
 
+// ---------- XLSX XML ----------
+
 /**
- * 创建 XLSX 工作表 XML 片段。
+ * 创建 XLSX 工作表 XML 片段
  */
 function createXlsxSheetParts(columns: string[], columnRefs: string[]): string[] {
   return [
@@ -197,7 +211,7 @@ function createXlsxSheetParts(columns: string[], columnRefs: string[]): string[]
 }
 
 /**
- * 创建最小 XLSX 工作簿的 ZIP 条目。
+ * 创建最小 XLSX 工作簿的 ZIP 条目
  */
 function createXlsxWorkbookEntries(sheetXml: string): ZipEntry[] {
   return [
@@ -248,8 +262,10 @@ function createXlsxWorkbookEntries(sheetXml: string): ZipEntry[] {
   ]
 }
 
+// ---------- 单元格格式化 ----------
+
 /**
- * 格式化 CSV 单元格。
+ * 格式化 CSV 单元格
  */
 function formatCsvCell(value: unknown): string {
   if (value === null || value === undefined)
@@ -261,7 +277,7 @@ function formatCsvCell(value: unknown): string {
 }
 
 /**
- * 格式化 XLSX 工作表行。
+ * 格式化 XLSX 工作表行
  */
 function formatXlsxRow(rowIndex: number, values: unknown[], columnRefs: string[]): string {
   const cells: string[] = []
@@ -274,7 +290,7 @@ function formatXlsxRow(rowIndex: number, values: unknown[], columnRefs: string[]
 }
 
 /**
- * 格式化 XLSX 单元格。
+ * 格式化 XLSX 单元格
  */
 function formatXlsxCell(value: unknown, cellRef: string): string {
   if (value === null || value === undefined || value === '')
@@ -290,7 +306,7 @@ function formatXlsxCell(value: unknown, cellRef: string): string {
 }
 
 /**
- * 移除 XML 1.0 不允许出现的控制字符。
+ * 移除 XML 1.0 不允许出现的控制字符
  */
 function sanitizeXmlText(value: string): string {
   let out = ''
@@ -304,7 +320,7 @@ function sanitizeXmlText(value: string): string {
 }
 
 /**
- * 转义 XML 文本节点内容。
+ * 转义 XML 文本节点内容
  */
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, c => ({
@@ -317,7 +333,7 @@ function escapeXml(value: string): string {
 }
 
 /**
- * 将从 0 开始的列下标转换为 Excel 列名。
+ * 将从 0 开始的列下标转换为 Excel 列名
  */
 function xlsxColumnName(index: number): string {
   let n = index + 1
@@ -331,14 +347,16 @@ function xlsxColumnName(index: number): string {
 }
 
 /**
- * 生成 UTF-8 XML Buffer。
+ * 生成 UTF-8 XML Buffer
  */
 function xmlBuffer(xml: string): Buffer {
   return Buffer.from(xml, 'utf8')
 }
 
+// ---------- 进度与取消 ----------
+
 /**
- * 归一化导出分页大小。
+ * 归一化导出分页大小
  */
 function normalizeExportPageSize(value: number | undefined): number {
   if (!Number.isFinite(value) || !value || value <= 0)
@@ -347,7 +365,7 @@ function normalizeExportPageSize(value: number | undefined): number {
 }
 
 /**
- * 汇报导出进度。
+ * 汇报导出进度
  */
 function reportExportProgress(
   options: TableExportOptions,
@@ -363,7 +381,7 @@ function reportExportProgress(
 }
 
 /**
- * 检查导出是否已经取消。
+ * 检查导出是否已经取消
  */
 function assertExportNotCancelled(options: TableExportOptions): void {
   if (options.shouldCancel?.())
@@ -371,17 +389,19 @@ function assertExportNotCancelled(options: TableExportOptions): void {
 }
 
 /**
- * 让出一次事件循环，避免大文件导出长期占用扩展宿主。
+ * 让出一次事件循环，避免大文件导出长期占用扩展宿主
  */
 function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }
 
+// ---------- ZIP 构建 ----------
+
 /**
- * 异步创建一个不压缩的 ZIP 文件。
+ * 异步创建一个不压缩的 ZIP 文件
  *
  * XLSX 本质上是 ZIP 包。这里使用 store 模式写入本地文件头、
- * 中央目录和结束记录，足够承载当前导出的几个 XML 部件。
+ * 中央目录和结束记录，足够承载当前导出的几个 XML 部件
  */
 async function createZipAsync(entries: ZipEntry[], options: TableExportOptions): Promise<Uint8Array> {
   const state = createZipBuildState()
@@ -397,7 +417,7 @@ async function createZipAsync(entries: ZipEntry[], options: TableExportOptions):
 }
 
 /**
- * 创建 ZIP 构建状态。
+ * 创建 ZIP 构建状态
  */
 function createZipBuildState(): ZipBuildState {
   return {
@@ -408,7 +428,7 @@ function createZipBuildState(): ZipBuildState {
 }
 
 /**
- * 写入单个 ZIP 条目。
+ * 写入单个 ZIP 条目
  */
 function appendZipEntry(state: ZipBuildState, entry: ZipEntry, crc: number): void {
   const name = Buffer.from(entry.name, 'utf8')
@@ -453,7 +473,7 @@ function appendZipEntry(state: ZipBuildState, entry: ZipEntry, crc: number): voi
 }
 
 /**
- * 写入 ZIP 中央目录和结束记录。
+ * 写入 ZIP 中央目录和结束记录
  */
 function finishZip(state: ZipBuildState, entryCount: number): Uint8Array {
   const centralOffset = state.offset
@@ -475,14 +495,16 @@ function finishZip(state: ZipBuildState, entryCount: number): Uint8Array {
 }
 
 /**
- * 检查 ZIP32 字段范围。
+ * 检查 ZIP32 字段范围
  */
 function assertZip32(label: string, value: number): void {
   if (value > 0xFFFFFFFF)
     throw new Error(l10n.t('ZIP entry is too large: {0}', label))
 }
 
-/** CRC32 查表，用于 ZIP 条目校验和。 */
+// ---------- CRC32 ----------
+
+/** CRC32 查表，用于 ZIP 条目校验和 */
 const CRC_TABLE = new Uint32Array(256)
 for (let i = 0; i < CRC_TABLE.length; i++) {
   let c = i
@@ -492,7 +514,7 @@ for (let i = 0; i < CRC_TABLE.length; i++) {
 }
 
 /**
- * 异步计算 ZIP 条目 CRC32。
+ * 异步计算 ZIP 条目 CRC32
  */
 async function crc32Async(data: Uint8Array, options: TableExportOptions): Promise<number> {
   let crc = 0xFFFFFFFF
@@ -506,7 +528,7 @@ async function crc32Async(data: Uint8Array, options: TableExportOptions): Promis
 }
 
 /**
- * 增量更新 CRC32。
+ * 增量更新 CRC32
  */
 function crc32Update(crc: number, data: Uint8Array, start: number, end: number): number {
   for (let i = start; i < end; i++)

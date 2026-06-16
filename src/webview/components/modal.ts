@@ -6,26 +6,30 @@
 
 import { icon } from '../icons'
 
-/** 模态框模板参数。 */
-export interface ModalTemplateOptions {
-  /** 模态框根节点 id。 */
+// ---------- 类型 ----------
+
+/** 模态框模板参数 */
+interface ModalTemplateOptions {
+  /** 模态框根节点 id */
   id: string
-  /** 标题文本；如果 titleId 存在，可传空字符串并由前端动态填充。 */
+  /** 标题文本；如果 titleId 存在，可传空字符串并由前端动态填充 */
   title: string
-  /** 标题节点 id。 */
+  /** 标题节点 id */
   titleId?: string
-  /** 内容区 id。 */
+  /** 内容区 id */
   bodyId: string
-  /** 内容区初始 HTML。 */
+  /** 内容区初始 HTML */
   bodyHtml?: string
-  /** 关闭按钮 id，保留给旧选择器或测试使用。 */
+  /** 关闭按钮 id，保留给旧选择器或测试使用 */
   closeButtonId: string
-  /** 关闭按钮提示文本。 */
+  /** 关闭按钮提示文本 */
   closeTitle: string
 }
 
+// ---------- 渲染 ----------
+
 /**
- * 渲染通用模态框。
+ * 渲染通用模态框
  */
 export function renderModal(options: ModalTemplateOptions): string {
   const titleId = options.titleId ?? `${options.id}-title`

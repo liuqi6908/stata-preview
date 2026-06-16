@@ -19,4 +19,13 @@ export default antfu(
       'test/no-import-node-test': 'off',
     },
   },
+  {
+    files: ['media/**/*.js'],
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+      'prefer-const': 'off',
+      'unused-imports/no-unused-vars': 'off',
+    },
+  },
 )

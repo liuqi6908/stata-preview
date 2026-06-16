@@ -1,0 +1,48 @@
+/* 变量字典弹窗 */
+#dictionary-modal {
+  & #dictionary-body {
+    & .dictionary-control-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 10px;
+      margin-bottom: 16px;
+      border-radius: 4px;
+      background: var(--vscode-sideBar-background);
+      border: 1px solid var(--vscode-panel-border);
+
+      & .dictionary-actions {
+        display: flex;
+        gap: 6px;
+      }
+    }
+
+    & .dictionary-summary {
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    & .dictionary-table-wrap {
+      & table tr th:first-child {
+        width: 48px;
+      }
+    }
+
+    & .dictionary-loading,
+    & .dictionary-error,
+    & .dictionary-empty-state {
+      padding: 20px;
+      text-align: center;
+    }
+
+    & .dictionary-loading,
+    & .dictionary-empty-state {
+      color: var(--vscode-descriptionForeground);
+    }
+
+    & .dictionary-error {
+      color: var(--vscode-errorForeground);
+    }
+  }
+}

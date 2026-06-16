@@ -1,0 +1,58 @@
+/* 初始加载 */
+#initial-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--vscode-editor-background);
+
+  & #initial-loading-card {
+    min-width: 380px;
+    max-width: 500px;
+    padding: 16px 24px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+
+    & h2 {
+      margin: 0 0 18px 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    & #progress-track {
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      background: var(--vscode-scrollbarSlider-background);
+
+      & #progress-fill {
+        width: 0%;
+        height: 100%;
+        background: var(--vscode-progressBar-background, #0e639c);
+        transition: width 0.15s ease-out;
+      }
+    }
+
+    & #progress-text {
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    &.error {
+      & h2 {
+        color: var(--vscode-errorForeground);
+      }
+
+      & #loading-error-message {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--vscode-foreground);
+        white-space: pre-wrap;
+      }
+    }
+  }
+}

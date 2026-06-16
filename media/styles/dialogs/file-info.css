@@ -1,0 +1,25 @@
+/* 文件信息弹窗 */
+#file-info-modal {
+  & .modal-content {
+    max-width: 560px;
+  }
+
+  & #file-info-body {
+    & .file-info-grid {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 8px 16px;
+      align-items: start;
+      line-height: 20px;
+
+      & .file-info-label {
+        color: var(--vscode-descriptionForeground);
+        white-space: nowrap;
+      }
+
+      & .file-info-value {
+        overflow-wrap: anywhere;
+      }
+    }
+  }
+}

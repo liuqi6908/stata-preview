@@ -16,29 +16,31 @@ import { exportDtaView, exportVariableDictionary, formatUriForDisplay } from '..
 import { FilterCompileError } from '../dta/filterCompiler'
 import { renderDtaWebviewHtml } from '../webview/html'
 
+// ---------- 工具函数 ----------
+
 /**
- * 将未知错误转换为可展示文本。
+ * 将未知错误转换为可展示文本
  */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
 /**
- * 过期的加载或视图计算都已被更新请求取代，不需要向用户展示。
+ * 过期的加载或视图计算都已被更新请求取代，不需要向用户展示
  */
 function isStaleDtaWorkError(error: unknown): boolean {
   return isStaleDtaLoadError(error) || isStaleDtaViewUpdateError(error)
 }
 
 /**
- * 生成当前文档对应的精确文件监听模式。
+ * 生成当前文档对应的精确文件监听模式
  */
 function createDocumentFilePattern(uri: vscode.Uri): vscode.RelativePattern {
   return new vscode.RelativePattern(parentUri(uri), escapeGlobSegment(uriBasename(uri)))
 }
 
 /**
- * 获取 URI 的父目录。
+ * 获取 URI 的父目录
  */
 function parentUri(uri: vscode.Uri): vscode.Uri {
   const path = uri.path.replace(/\/+$/, '')
@@ -48,7 +50,7 @@ function parentUri(uri: vscode.Uri): vscode.Uri {
 }
 
 /**
- * 获取 URI 的文件名。
+ * 获取 URI 的文件名
  */
 function uriBasename(uri: vscode.Uri): string {
   const path = uri.path.replace(/\/+$/, '')
@@ -57,14 +59,14 @@ function uriBasename(uri: vscode.Uri): string {
 }
 
 /**
- * 将文件名转成单段 glob 字面量，避免特殊字符被当成通配符。
+ * 将文件名转成单段 glob 字面量，避免特殊字符被当成通配符
  */
 function escapeGlobSegment(segment: string): string {
   return segment.replace(/[*?[\]{}]/g, char => `[${char}]`)
 }
 
 /**
- * 发送加载错误；过期任务会被更新请求取代，不需要展示。
+ * 发送加载错误；过期任务会被更新请求取代，不需要展示
  */
 function postLoadError(webviewPanel: vscode.WebviewPanel, error: unknown): void {
   if (isStaleDtaWorkError(error))
@@ -75,15 +77,19 @@ function postLoadError(webviewPanel: vscode.WebviewPanel, error: unknown): void 
   })
 }
 
+// ---------- Provider ----------
+
 /**
- * Stata .dta 自定义只读编辑器。
+ * Stata .dta 自定义只读编辑器
  */
 export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
-  /** 自定义编辑器 viewType，需要与 package.json contributes.customEditors 对齐。 */
+  // ---------- 注册 ----------
+
+  /** 自定义编辑器 viewType，需要与 package.json contributes.customEditors 对齐 */
   private static readonly viewType = 'stataPreview.dta'
 
   /**
-   * 注册自定义编辑器 Provider。
+   * 注册自定义编辑器 Provider
    */
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
     const provider = new DtaEditorProvider(context)
@@ -94,13 +100,17 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     })
   }
 
+  // ---------- 初始化 ----------
+
   constructor(
-    /** VS Code 扩展上下文，用于定位 media 资源。 */
+    /** VS Code 扩展上下文，用于定位 media 资源 */
     private readonly context: vscode.ExtensionContext,
   ) {}
 
+  // ---------- Webview 生命周期 ----------
+
   /**
-   * 打开只读自定义文档。
+   * 打开只读自定义文档
    */
   public async openCustomDocument(
     uri: vscode.Uri,
@@ -109,7 +119,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 创建并连接 Webview 编辑器。
+   * 创建并连接 Webview 编辑器
    */
   public async resolveCustomEditor(
     document: vscode.CustomDocument,
@@ -127,7 +137,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     let webviewReadyResolve: (() => void) | null = null
 
     /**
-     * 等待当前 Webview 脚本完成初始化。
+     * 等待当前 Webview 脚本完成初始化
      */
     const waitForWebviewReady = (): Promise<void> => {
       if (webviewReady)
@@ -148,7 +158,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
 
     /**
-     * 准备重新渲染 Webview HTML。
+     * 准备重新渲染 Webview HTML
      */
     const prepareWebviewReload = (): Promise<void> => {
       webviewReady = false
@@ -156,14 +166,14 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
 
     /**
-     * 发送当前视图的初始页面。
+     * 发送当前视图的初始页面
      */
     const postInitData = (view: DtaView) => {
       this.postInitData(webviewPanel, view, session.fileInfo)
     }
 
     /**
-     * 标记当前 Webview 已经注册消息监听。
+     * 标记当前 Webview 已经注册消息监听
      */
     const markWebviewReady = () => {
       webviewReady = true
@@ -173,7 +183,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       }
 
       // VS Code 可能在标签页切换时重建 webview。扩展侧已有数据时，
-      // 主动补发 initData，让新脚本恢复页面。
+      // 主动补发 initData，让新脚本恢复页面
       if (session.hasLoadedData) {
         void session.getView()
           .then(postInitData)
@@ -184,7 +194,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
 
     /**
-     * 重新读取数据并下发给现有 Webview，不重建 HTML。
+     * 重新读取数据并下发给现有 Webview，不重建 HTML
      */
     const reloadData = async () => {
       const { view } = await session.reload((rowsRead, totalRows) => {
@@ -197,7 +207,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       postInitData(view)
     }
 
-    // 文件变更后清空缓存并重新加载。
+    // 文件变更后清空缓存并重新加载
     const watcher = vscode.workspace.createFileSystemWatcher(
       createDocumentFilePattern(document.uri),
     )
@@ -216,7 +226,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     watcher.onDidChange(reloadChangedFile)
     watcher.onDidCreate(reloadChangedFile)
 
-    // Webview 消息入口：处理刷新、分页、排序、筛选、变量汇总、变量字典和导出。
+    // Webview 消息入口：处理刷新、分页、排序、筛选、变量统计、变量字典和导出
     webviewPanel.webview.onDidReceiveMessage(async (message) => {
       if (message.command === 'ready') {
         markWebviewReady()
@@ -240,8 +250,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
           })
         }
         else if (message.command === 'getPage') {
-          const offset = Math.max(0, message.offset | 0)
-          const limit = Math.max(1, Math.min(MAX_PAGE_SIZE, message.limit | 0 || DEFAULT_PAGE_SIZE))
+          const { offset, limit } = this.normalizePageRequest(message)
           const page = await session.getPage(offset, limit)
           webviewPanel.webview.postMessage({
             command: 'pageResult',
@@ -281,7 +290,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
           return
         }
 
-        // 所有命令共享的兜底错误响应，避免 Webview 请求悬空。
+        // 所有命令共享的兜底错误响应，避免 Webview 请求悬空
         const msg = errorMessage(e)
         if (message.command === 'exportData' || message.command === 'exportVariableDictionary')
           void vscode.window.showErrorMessage(msg)
@@ -293,7 +302,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       }
     })
 
-    // 释放文件监听和文档缓存。
+    // 释放文件监听和文档缓存
     webviewPanel.onDidDispose(() => {
       watcher.dispose()
       session.invalidate()
@@ -305,8 +314,10 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
       })
   }
 
+  // ---------- Webview 消息 ----------
+
   /**
-   * 处理变量汇总消息。
+   * 处理变量统计消息
    */
   private async handleTabulateMessage(
     webviewPanel: vscode.WebviewPanel,
@@ -338,7 +349,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 处理通用筛选消息。
+   * 处理通用筛选消息
    */
   private async handleFilterMessage(
     webviewPanel: vscode.WebviewPanel,
@@ -367,7 +378,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 处理导出消息。
+   * 处理导出消息
    */
   private async handleExportMessage(
     sourceUri: vscode.Uri,
@@ -376,11 +387,8 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     message: any,
   ): Promise<void> {
     const view = await session.getView()
-    const format: TableExportFormat = message.format === 'xlsx' ? 'xlsx' : 'csv'
-    const validHeaders = new Set(view.meta.headers)
-    const columns = Array.isArray(message.columns)
-      ? message.columns.filter((col: unknown): col is string => typeof col === 'string' && validHeaders.has(col))
-      : view.meta.headers
+    const format = this.normalizeExportFormat(message.format)
+    const columns = this.resolveExportColumns(view, message.columns)
 
     const savedUri = await exportDtaView({
       sourceUri,
@@ -397,7 +405,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 处理变量字典导出消息。
+   * 处理变量字典导出消息
    */
   private async handleExportVariableDictionaryMessage(
     sourceUri: vscode.Uri,
@@ -406,7 +414,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     message: any,
   ): Promise<void> {
     const entries = await session.getVariableDictionary()
-    const format: TableExportFormat = message.format === 'xlsx' ? 'xlsx' : 'csv'
+    const format = this.normalizeExportFormat(message.format)
 
     const savedUri = await exportVariableDictionary({
       sourceUri,
@@ -422,7 +430,37 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 发送当前视图的初始页面。
+   * 标准化分页请求参数
+   */
+  private normalizePageRequest(message: any): { offset: number, limit: number } {
+    return {
+      offset: Math.max(0, message.offset | 0),
+      limit: Math.max(1, Math.min(MAX_PAGE_SIZE, message.limit | 0 || DEFAULT_PAGE_SIZE)),
+    }
+  }
+
+  /**
+   * 标准化导出格式
+   */
+  private normalizeExportFormat(format: unknown): TableExportFormat {
+    return format === 'xlsx' ? 'xlsx' : 'csv'
+  }
+
+  /**
+   * 从 Webview 传入列名中筛出当前视图可导出的列
+   */
+  private resolveExportColumns(view: DtaView, columns: unknown): string[] {
+    if (!Array.isArray(columns))
+      return view.meta.headers
+
+    const validHeaders = new Set(view.meta.headers)
+    return columns.filter((column): column is string => typeof column === 'string' && validHeaders.has(column))
+  }
+
+  // ---------- 初始化数据 ----------
+
+  /**
+   * 发送当前视图的初始页面
    */
   private postInitData(
     webviewPanel: vscode.WebviewPanel,
@@ -449,7 +487,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   }
 
   /**
-   * 初始化 Webview 并加载数据。
+   * 初始化 Webview 并加载数据
    */
   private async loadData(
     session: DtaDocumentSession,
@@ -458,7 +496,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
   ) {
     const fileInfo = await session.refreshFileInfo()
 
-    // 第一步：先渲染加载界面，再等待脚本注册消息监听。
+    // 第一步：先渲染加载界面，再等待脚本注册消息监听
     const webviewReadyPromise = prepareWebviewReload()
     webviewPanel.webview.html = renderDtaWebviewHtml({
       webview: webviewPanel.webview,
@@ -470,7 +508,7 @@ export class DtaEditorProvider implements vscode.CustomReadonlyEditorProvider {
     })
     await webviewReadyPromise
 
-    // 第二步：执行真实解析，并在完成后发送初始元数据和第一页数据。
+    // 第二步：执行真实解析，并在完成后发送初始元数据和第一页数据
     try {
       const { view } = await session.loadAll((rowsRead, totalRows) => {
         webviewPanel.webview.postMessage({

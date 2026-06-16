@@ -26,6 +26,8 @@
 import type { DtaColumnar } from './types'
 import { l10n } from 'vscode'
 
+// ---------- 缓存与类型 ----------
+
 /** 编译缓存 */
 const compileCache: WeakMap<DtaColumnar, Map<string, CompileResult>> = new WeakMap()
 
@@ -33,7 +35,7 @@ const compileCache: WeakMap<DtaColumnar, Map<string, CompileResult>> = new WeakM
 export type CompiledFilter = (rowIdx: number) => boolean
 
 /** 编译结果 */
-export interface CompileResult {
+interface CompileResult {
   /** 可执行过滤函数 */
   fn: CompiledFilter
   /** 表达式中引用到的变量名 */
@@ -100,21 +102,21 @@ interface Token {
 }
 
 /**
- * 读取当前位置的完整 Unicode 字符。
+ * 读取当前位置的完整 Unicode 字符
  */
 function codePointAt(src: string, pos: number): string {
   return String.fromCodePoint(src.codePointAt(pos)!)
 }
 
 /**
- * 标识符起始字符：下划线或任意 Unicode 字母。
+ * 标识符起始字符：下划线或任意 Unicode 字母
  */
 function isIdentifierStart(c: string): boolean {
   return c === '_' || /\p{L}/u.test(c)
 }
 
 /**
- * 标识符后续字符：下划线、Unicode 字母、数字或组合标记。
+ * 标识符后续字符：下划线、Unicode 字母、数字或组合标记
  */
 function isIdentifierPart(c: string): boolean {
   return c === '_' || /[\p{L}\p{N}\p{M}]/u.test(c)
@@ -265,7 +267,7 @@ function tokenize(src: string): Token[] {
       continue
     }
 
-    // 标识符（变量名）：字母、数字、下划线，不能以数字开头；支持 Unicode 变量名。
+    // 标识符（变量名）：字母、数字、下划线，不能以数字开头；支持 Unicode 变量名
     if (isIdentifierStart(c)) {
       let s = ''
       while (i < src.length) {
@@ -489,7 +491,7 @@ type Resolver = (rowIdx: number) => ValueResult
 const MISSING_VALUE: ValueResult = { v: null, missing: true }
 
 /**
- * 判断标量是否按筛选语义为真。
+ * 判断标量是否按筛选语义为真
  */
 function isTruthyValue(x: ValueResult): boolean {
   if (x.missing)
@@ -502,21 +504,21 @@ function isTruthyValue(x: ValueResult): boolean {
 }
 
 /**
- * 判断两个非缺失值是否相等。
+ * 判断两个非缺失值是否相等
  */
 function scalarEquals(a: Scalar, b: Scalar): boolean {
   return a === b
 }
 
 /**
- * 判断值是否支持大小比较。
+ * 判断值是否支持大小比较
  */
 function isComparable(v: Scalar): v is number | string {
   return typeof v === 'number' || typeof v === 'string'
 }
 
 /**
- * 比较两个非缺失值。
+ * 比较两个非缺失值
  */
 function compareScalars(a: Scalar, b: Scalar, op: 'lt' | 'le' | 'gt' | 'ge'): boolean {
   if (!isComparable(a) || !isComparable(b) || typeof a !== typeof b)
@@ -530,14 +532,14 @@ function compareScalars(a: Scalar, b: Scalar, op: 'lt' | 'le' | 'gt' | 'ge'): bo
 }
 
 /**
- * 将值转换为用于字符串函数的文本。
+ * 将值转换为用于字符串函数的文本
  */
 function scalarToString(v: Scalar): string {
   return String(v)
 }
 
 /**
- * 读取数值参数。
+ * 读取数值参数
  */
 function expectNumber(v: Scalar, label: string): number {
   if (typeof v === 'number')
@@ -546,7 +548,7 @@ function expectNumber(v: Scalar, label: string): number {
 }
 
 /**
- * 检查函数参数个数。
+ * 检查函数参数个数
  */
 function expectArgCount(name: string, got: number, expected: number): void {
   if (got !== expected)
@@ -554,7 +556,7 @@ function expectArgCount(name: string, got: number, expected: number): void {
 }
 
 /**
- * 检查函数参数个数下限。
+ * 检查函数参数个数下限
  */
 function expectMinArgCount(name: string, got: number, min: number): void {
   if (got < min)
@@ -562,7 +564,7 @@ function expectMinArgCount(name: string, got: number, min: number): void {
 }
 
 /**
- * 将 Stata 数值日期/日期时间或日期字符串转换为 Date。
+ * 将 Stata 数值日期/日期时间或日期字符串转换为 Date
  */
 function toDate(value: Scalar): Date | null {
   if (typeof value === 'number') {
@@ -664,7 +666,7 @@ function compileVal(
 }
 
 /**
- * 编译内置函数调用。
+ * 编译内置函数调用
  */
 function compileCall(
   node: Extract<Node, { kind: 'call' }>,
@@ -840,10 +842,12 @@ function compileBool(
       }
     }
   }
-  // 顶层值表达式按非零、非空、非缺失、布尔 true 判断真值。
+  // 顶层值表达式按非零、非空、非缺失、布尔 true 判断真值
   const r = compileVal(node, data, referenced)
   return i => isTruthyValue(r(i))
 }
+
+// ---------- 公共入口 ----------
 
 /**
  * 编译过滤表达式
